@@ -351,7 +351,7 @@ ${recentConversations.slice(-3).map((c, i) => `${i + 1}. "${c}"`).join('\n') || 
        let cartDetailsStr = "";
        orderCart.forEach(item => {
           cartTotal += item.price * item.qty;
-          cartDetailsStr += `${item.qty}x ${item.name}, `;
+          cartDetailsStr += `${item.qty}x ${item.name} (@Rs.${item.price}), `;
        });
        cartDetailsStr = cartDetailsStr.replace(/, $/, "");
 
@@ -494,8 +494,7 @@ ${recentConversations.slice(-3).map((c, i) => `${i + 1}. "${c}"`).join('\n') || 
     
     // Receipt body
     doc.setFont("helvetica", "bold");
-    doc.text("Item Name", 20, 70);
-    doc.text("Quantity", 110, 70);
+    doc.text("Order Details", 20, 70);
     doc.setLineWidth(0.2);
     doc.line(20, 72, 190, 72);
 
@@ -503,10 +502,27 @@ ${recentConversations.slice(-3).map((c, i) => `${i + 1}. "${c}"`).join('\n') || 
     let y = 78;
     const items = order.details.split(', ');
     items.forEach((item: string) => {
-       const match = item.match(/^(\d+)x\s+(.*)$/);
-       if (match) {
-          doc.text(match[2], 20, y);
-          doc.text(match[1], 110, y);
+       const newMatch = item.match(/^(\d+)x\s+(.*?)\s+\(@Rs\.(\d+)\)$/);
+       const oldMatch = item.match(/^(\d+)x\s+(.*)$/);
+       
+       if (newMatch) {
+          const qty = parseInt(newMatch[1], 10);
+          const name = newMatch[2].trim();
+          const unitPrice = parseInt(newMatch[3], 10);
+          const lineTotal = qty * unitPrice;
+          const rowString = `${name} | Qty: ${qty} | ${qty} x ${unitPrice} | Total: Rs. ${lineTotal}`;
+          doc.text(rowString, 20, y);
+       } else if (oldMatch) {
+          const qty = parseInt(oldMatch[1], 10);
+          const name = oldMatch[2].trim();
+          let unitPrice = 0;
+          const menuItemDetails = MENU_ITEMS.find(m => m.name === name);
+          if (menuItemDetails) {
+            unitPrice = menuItemDetails.price;
+          }
+          const lineTotal = qty * unitPrice;
+          const rowString = `${name} | Qty: ${qty} | ${qty} x ${unitPrice} | Total: Rs. ${lineTotal}`;
+          doc.text(rowString, 20, y);
        } else {
           doc.text(item, 20, y);
        }
