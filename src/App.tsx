@@ -2,9 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 import { AuthModal } from './components/AuthModal';
 import { ChatApp } from './components/ChatApp';
+import { AdminPanel } from './components/AdminPanel';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
+  const [adminUser, setAdminUser] = useState<any>(null);
+  const [botStatus, setBotStatus] = useState<'ON' | 'OFF'>('ON');
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
 
@@ -37,17 +40,25 @@ export default function App() {
     );
   }
 
+  const userToPass = adminUser || session?.user;
+
   return (
     <>
-      {!session ? (
-        <AuthModal onAuthenticated={() => {}} />
+      {!userToPass ? (
+        <AuthModal onAuthenticated={(u) => { if (u) setAdminUser(u); }} />
       ) : (
-        <ChatApp 
-          user={session.user} 
-          onLogout={() => supabase.auth.signOut()} 
-          toggleTheme={toggleTheme}
-          theme={theme}
-        />
+        <>
+          <ChatApp 
+            user={userToPass} 
+            onLogout={() => { setAdminUser(null); supabase.auth.signOut(); }} 
+            toggleTheme={toggleTheme}
+            theme={theme}
+            botStatus={botStatus}
+          />
+          {userToPass.email === 'admin@spicehub.com' && (
+            <AdminPanel botStatus={botStatus} setBotStatus={setBotStatus} onLogout={() => { setAdminUser(null); supabase.auth.signOut(); }} />
+          )}
+        </>
       )}
     </>
   );

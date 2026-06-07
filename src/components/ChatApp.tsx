@@ -16,18 +16,21 @@ type Message = {
   text: string;
   pills?: string[];
   isLoading?: boolean;
+  orderData?: any;
+  menuCategories?: { category: string; items: any[] }[];
 };
 
 const getInitialMessage = (lang: 'english' | 'roman_urdu'): Message => ({
   id: '1',
   role: 'assistant',
   text: lang === 'english' ? "Welcome to Spice Hub! I can help you place an order or book a table." : "Spice Hub me khush amdeed! Main aapka order aur booking handle karunga.",
-  pills: ["View Menu", "Order Now", "Book Table", "Track Order", "Talk to Agent"]
+  pills: ["Menu", "Book Table", "Track Order", "Talk to Agent"]
 });
 
 let orderCart: any[] = [];
+let recentConversations: string[] = [];
 
-export function ChatApp({ user, onLogout, toggleTheme, theme }: { user: any, onLogout: () => void, toggleTheme: () => void, theme: string }) {
+export function ChatApp({ user, onLogout, toggleTheme, theme, botStatus }: { user: any, onLogout: () => void, toggleTheme: () => void, theme: string, botStatus: 'ON' | 'OFF' }) {
   const [currentLanguage, setCurrentLanguage] = useState<'english' | 'roman_urdu'>('roman_urdu');
   const [messages, setMessages] = useState<Message[]>([getInitialMessage('roman_urdu')]);
   const [input, setInput] = useState('');
@@ -39,13 +42,55 @@ export function ChatApp({ user, onLogout, toggleTheme, theme }: { user: any, onL
   const [reviewPopup, setReviewPopup] = useState<string | null>(null);
   const [rating, setRating] = useState(5);
   const [reviewText, setReviewText] = useState("");
+  const [cartTick, setCartTick] = useState(0);
+  const [isCartDrawerOpen, setIsCartDrawerOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [chatState, setChatState] = useState<'WELCOME' | 'MENU' | 'WAITING_FOR_QUANTITY' | 'ORDERING_ADDRESS' | 'WAITING_FOR_GUESTS' | 'WAITING_FOR_TIME' | 'WAITING_FOR_NAME' | 'TRACK_ORDER_ID' | 'TALK_AGENT_PHONE' | 'GENERAL'>('WELCOME');
+  const [chatState, setChatState] = useState<'WELCOME' | 'MENU' | 'WAITING_FOR_QUANTITY' | 'ORDERING_NAME' | 'ORDERING_PHONE' | 'ORDERING_ADDRESS' | 'WAITING_FOR_GUESTS' | 'WAITING_FOR_TIME' | 'WAITING_FOR_NAME' | 'WAITING_FOR_PHONE' | 'TRACK_ORDER_ID' | 'TALK_AGENT_PHONE' | 'GENERAL' | 'COMPLETED'>('WELCOME');
+
+  const [deliveryInfo, setDeliveryInfo] = useState({ name: '', phone: '', address: '' });
+  const [bookingInfo, setBookingInfo] = useState({ name: '', phone: '' });
 
   
   // Pending order/booking states
   const [pendingOrder, setPendingOrder] = useState<any>(null);
+  const [selectedProduct, setSelectedProduct] = useState<any>(null);
+  const [productSize, setProductSize] = useState<'Small' | 'Medium' | 'Large'>('Medium');
+  const [productQty, setProductQty] = useState<number>(1);
   const [pendingBooking, setPendingBooking] = useState<any>(null);
+  const [activeLiveOrders, setActiveLiveOrders] = useState<any[]>([]);
+
+  useEffect(() => {
+    // Request permission on mount if needed
+    if ("Notification" in window && Notification.permission === "default") {
+       Notification.requestPermission();
+    }
+
+    const fetchActiveOrders = async () => {
+      const res = await supabase.from('orders').select('*').eq('user_id', user.id).neq('status', 'Delivered');
+      if (res.data) {
+         setActiveLiveOrders(res.data);
+      }
+    };
+    fetchActiveOrders();
+
+    const subscription = supabase.channel('public:orders')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `user_id=eq.${user.id}` }, payload => {
+         fetchActiveOrders();
+         if (payload.eventType === 'UPDATE') {
+            if ("Notification" in window && Notification.permission === "granted") {
+               new Notification(`SpiceHub Order Update`, {
+                  body: `Your order ${payload.new.id} is now: ${payload.new.status}`
+               });
+            }
+         }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
+  }, [user.id]);
+
 
   const MENU_ITEMS = [
     { name: 'Zinger Burger', price: 450, category: 'Burgers' },
@@ -68,8 +113,8 @@ export function ChatApp({ user, onLogout, toggleTheme, theme }: { user: any, onL
     }
   }, [messages]);
 
-  const addBotMessage = (text: string, pills?: string[]) => {
-    setMessages(prev => [...prev.filter(m => !m.isLoading), { id: crypto.randomUUID(), role: 'assistant', text, pills }]);
+  const addBotMessage = (text: string, pills?: string[], orderData?: any, menuCategories?: any[]) => {
+    setMessages(prev => [...prev.filter(m => !m.isLoading), { id: crypto.randomUUID(), role: 'assistant', text, pills, orderData, menuCategories }]);
   };
 
   const handlePillClick = (pillText: string) => {
@@ -90,17 +135,59 @@ export function ChatApp({ user, onLogout, toggleTheme, theme }: { user: any, onL
     // State machine logic
     const lowerText = text.toLowerCase();
 
-    // Reset loop if triggered menu
-    if (lowerText === 'main menu') {
-       handleReset();
+    // Admin Commands
+    if (lowerText === 'show admin dashboard' || lowerText === 'admin log analytics') {
+      const dashboard = `**System Status**: ${botStatus}
+**User Login Sessions Count**: 2 Active, 18 Today
+**Order Metrics Matrix**: 156 Total Orders (Rs. 450,230)
+**Ambiance Bookings Matrix**: 24 Bookings (12 Zone A, 8 Zone B, 4 VIP)
+**Weekly/Monthly Chat Volume Graph**:
+Mon: █ █ █ █ 50
+Tue: █ █ █ 40
+Wed: █ █ █ █ █ █ 80
+Thu: █ █ █ █ █ 65
+Fri: █ █ █ █ █ █ █ █ 110
+**Top FAQ Intents**:
+1. Table Timings
+2. Pizza Combo Sizes
+3. Delivery Radius
+**Recent Conversations Log**:
+${recentConversations.slice(-3).map((c, i) => `${i + 1}. "${c}"`).join('\n') || "1. No recent conversations"}`;
+      
+      addBotMessage(dashboard);
+      return;
+    }
+
+    if (lowerText === 'toggle bot') {
+       addBotMessage(`Use the Admin Panel to toggle bot status.`);
        return;
     }
 
-    if (lowerText === 'view menu' || lowerText === 'order now') {
+    if (botStatus === 'OFF') {
+      addBotMessage("Maazrat, SpiceHub AI Chatbot is temporarily offline by the Administrator for maintenance. Kindly use our web interface or contact support.");
+      return;
+    }
+
+    recentConversations.push(text);
+    if (recentConversations.length > 20) recentConversations.shift();
+
+    // Session freeze after order completion
+    if (chatState === 'COMPLETED') {
+       addBotMessage("Your transaction has been finalized and this session is locked. Please refresh the page or click 'New Chat' to start a new order.");
+       return;
+    }
+
+    if (lowerText === 'menu' || lowerText === 'main menu' || lowerText === 'view menu' || lowerText === 'aur menu dekhein' || lowerText.includes('menu')) {
        setChatState('MENU');
+       const categoriesObj = MENU_ITEMS.reduce((acc, item) => {
+         if (!acc[item.category]) acc[item.category] = [];
+         acc[item.category].push(item);
+         return acc;
+       }, {} as Record<string, any[]>);
+       const menuCategories = Object.keys(categoriesObj).map(cat => ({ category: cat, items: categoriesObj[cat] }));
        addBotMessage(
-         currentLanguage === 'english' ? "What would you like to order? We offer Burgers, Pizza, Biryani, and Drinks." : "Aap kya khana pasand karenge? Hamare paas Burgers, Pizza, Biryani, aur Drinks hain.", 
-         ["Burgers", "Pizza", "Biryani", "Drinks"]
+         currentLanguage === 'english' ? "Here is our menu. Please select a category or item to begin your order." : "Yeh hamara menu hai. Koi item select karein.",
+         [], undefined, menuCategories
        );
        return;
     }
@@ -123,31 +210,15 @@ export function ChatApp({ user, onLogout, toggleTheme, theme }: { user: any, onL
        return;
     }
 
-    if (lowerText === 'view more menu' || lowerText === 'aur menu dekhein' || lowerText.includes('menu')) {
-       setChatState('MENU');
-       addBotMessage(
-         currentLanguage === 'english' ? "What would you like to order? We offer Burgers, Pizza, Biryani, and Drinks." : "Aap kya khana pasand karenge? Hamare paas Burgers, Pizza, Biryani, aur Drinks hain.", 
-         ["Burgers", "Pizza", "Biryani", "Drinks"]
-       );
-       return;
-    }
-
+    // Checkout flow trigger
     if (lowerText === 'checkout' || lowerText === 'checkout karein' || lowerText.includes('checkout')) {
        if (orderCart.length === 0) {
-          addBotMessage(currentLanguage === 'english' ? "Your cart is empty." : "Aapki cart khali hai.", getInitialMessage(currentLanguage).pills);
+          addBotMessage(currentLanguage === 'english' ? "Your cart is empty." : "Aapki cart khali hai.", ["Main Menu", "Order Now"]);
           setChatState('WELCOME');
        } else {
-          let total = 0;
-          let details = currentLanguage === 'english' ? "Your Full Order:\n" : "Aapka Mukammal Order:\n";
-          orderCart.forEach(item => {
-             total += item.price * item.qty;
-             details += `- ${item.qty}x ${item.name} (Rs. ${item.price * item.qty})\n`;
-          });
-          details += `\nGrand Total: Rs. ${total}\n\n`;
-          details += currentLanguage === 'english' ? "Please type your complete Delivery Address to confirm." : "Order confirm karne ke liye apna mukammal Delivery Address type karein.";
-          
-          setChatState('ORDERING_ADDRESS');
-          addBotMessage(details);
+          setChatState('ORDERING_NAME');
+          addBotMessage(currentLanguage === 'english' ? "To proceed with checkout, please type your Full Name (e.g. Ali Khan)." : "Order aage barhane ke liye apna Mukammal Naam type karein (misal ke taur par, Ali Khan).");
+          setIsCartDrawerOpen(true);
        }
        return;
     }
@@ -174,13 +245,9 @@ export function ChatApp({ user, onLogout, toggleTheme, theme }: { user: any, onL
        // Exact string typing match
        const exactMatch = MENU_ITEMS.find(m => m.name.toLowerCase() === lowerText);
        if (exactMatch) {
-          setPendingOrder({ name: exactMatch.name, price: exactMatch.price });
-          setChatState('WAITING_FOR_QUANTITY');
-          addBotMessage(
-            currentLanguage === 'english' 
-              ? `${exactMatch.name} selected. How many would you like? (e.g. 1, 2)` 
-              : `${exactMatch.name} select ho gaya. Kitni quantity chahiye? (Sirf number likhein, e.g., 1, 2)`
-          );
+          setSelectedProduct({ name: exactMatch.name, price: exactMatch.price, category: exactMatch.category });
+          setProductQty(1);
+          setProductSize('Medium');
           return;
        }
 
@@ -197,6 +264,7 @@ export function ChatApp({ user, onLogout, toggleTheme, theme }: { user: any, onL
        if (aiRes.intent === "ORDER_ITEM") {
           if (aiRes.quantity) {
              orderCart.push({ name: aiRes.item, price: aiRes.subtotal / aiRes.quantity, qty: aiRes.quantity });
+             setCartTick(t => t + 1);
              setChatState('GENERAL'); // Will be overridden shortly
              addBotMessage(
                currentLanguage === 'english'
@@ -228,6 +296,7 @@ export function ChatApp({ user, onLogout, toggleTheme, theme }: { user: any, onL
        }
        const enteredQuantity = parseInt(qtyMatch[0]);
        orderCart.push({ name: pendingOrder.name, price: pendingOrder.price, qty: enteredQuantity });
+       setCartTick(t => t + 1);
        
        setPendingOrder(null);
        setChatState('GENERAL'); // To wait for 'view more menu' or 'checkout'
@@ -240,12 +309,42 @@ export function ChatApp({ user, onLogout, toggleTheme, theme }: { user: any, onL
        return;
     }
 
+    if (chatState === 'ORDERING_NAME') {
+       if (text.trim().length < 2) {
+           addBotMessage(currentLanguage === 'english' ? "Name is missing or too short. Please provide your full name." : "Naam theek nahi hai. Barahe karam apna pura naam darj karein.");
+           return;
+       }
+       setDeliveryInfo(prev => ({ ...prev, name: text.trim() }));
+       setChatState('ORDERING_PHONE');
+       addBotMessage(currentLanguage === 'english' ? "Thank you. Please type a valid 11-digit Pakistani mobile number (e.g. 03001234567)." : "Shukriya. Apna 11-digit mobile number likhein (e.g. 03001234567).");
+       return;
+    }
+
+    if (chatState === 'ORDERING_PHONE') {
+       const phoneMatch = text.match(/^((\+92)?(0092)?(92)?(0)?)(3[0-9]{2})[0-9]{7}$/);
+       if (!phoneMatch) {
+           addBotMessage(currentLanguage === 'english' ? "Invalid phone format. We require a valid 11-digit Pakistani mobile number." : "Mobile number theek nahi hai. Barahe karam sahi 11-digit Pakistani number likhein.");
+           return;
+       }
+       setDeliveryInfo(prev => ({ ...prev, phone: text.trim() }));
+       setChatState('ORDERING_ADDRESS');
+       addBotMessage(currentLanguage === 'english' ? "Great! Lastly, please provide your complete Delivery Address (Street, Area, City)." : "Behtareen! Aakhir mein apna Mukammal Delivery Address (Street, Area, City) likhein.");
+       return;
+    }
+
     if (chatState === 'ORDERING_ADDRESS') {
+       if (text.trim().length <= 5) {
+          addBotMessage(currentLanguage === 'english' ? "Address is missing or too short. Please provide a complete delivery address." : "Address adhoora hai. Barahe karam mukammal pata faraham karein.");
+          return;
+       }
        const isValid = await validateAddress(text);
        if (!isValid) {
           addBotMessage(currentLanguage === 'english' ? "That address seems invalid. Please provide a complete and correct address." : "Maazrat, yeh address theek nahi lag raha. Apna mukammal aur sahi address type karein.");
           return;
        }
+
+       setDeliveryInfo(prev => ({ ...prev, address: text.trim() }));
+       const finalAddress = text.trim();
 
        const trackingId = "SPH" + Math.floor(1000 + Math.random() * 9000);
        let cartTotal = 0;
@@ -257,13 +356,19 @@ export function ChatApp({ user, onLogout, toggleTheme, theme }: { user: any, onL
        cartDetailsStr = cartDetailsStr.replace(/, $/, "");
 
        await supabase.from('orders').insert({
-          id: trackingId, user_id: user.id, details: cartDetailsStr, address: text, total: cartTotal, status: 'Preparing'
+          id: trackingId, user_id: user.id, details: cartDetailsStr, address: finalAddress, total: cartTotal, status: 'Preparing'
        });
-       setOrderHistory(prev => [{ id: trackingId, details: cartDetailsStr, total: cartTotal, date: new Date().toISOString(), status: 'Preparing' }, ...prev]);
+       const newOrder = { id: trackingId, details: cartDetailsStr, total: cartTotal, date: new Date().toISOString(), status: 'Preparing' };
+       setOrderHistory(prev => [newOrder, ...prev]);
        setSuccessPopup({ title: 'Success!', message: `Order Confirmed!\nTracking ID: ${trackingId}`});
-       addBotMessage(currentLanguage === 'english' ? `Order confirmed!\nTracking ID: ${trackingId}\nEstimated time: 30-40 min.` : `Aapka order confirm ho gaya hai! \nTracking ID: ${trackingId}\nDelivery time estimate: 30-40 min.`, ["Track Order", "View Menu"]);
-       setChatState('GENERAL');
+       addBotMessage(
+         currentLanguage === 'english' ? `Order confirmed!\nTracking ID: ${trackingId}\nEstimated time: 30-40 min.` : `Aapka order confirm ho gaya hai! \nTracking ID: ${trackingId}\nDelivery time estimate: 30-40 min.`, 
+         ["Track Order", "New Chat"],
+         newOrder
+       );
+       setChatState('COMPLETED');
        orderCart = []; // Clear Cart
+       setCartTick(t => t + 1); setIsCartDrawerOpen(false);
        return;
     }
 
@@ -272,7 +377,7 @@ export function ChatApp({ user, onLogout, toggleTheme, theme }: { user: any, onL
        const res = await supabase.from('orders').select('status').eq('id', inputID);
        if (res.data && res.data.length > 0) {
           const status = res.data[0].status;
-          addBotMessage(currentLanguage === 'english' ? `Status for Order ${inputID}: ${status}.` : `Aapka Order ${inputID} ka status hai: ${status}.`, ["View Menu"]);
+          addBotMessage(currentLanguage === 'english' ? `Status for Order ${inputID}: ${status}.` : `Aapka Order ${inputID} ka status hai: ${status}.`, getInitialMessage(currentLanguage).pills);
        } else {
           addBotMessage(currentLanguage === 'english' ? "Sorry, this Order ID was not found." : "Maazrat, yeh Order ID record me nahi mili.");
        }
@@ -289,17 +394,22 @@ export function ChatApp({ user, onLogout, toggleTheme, theme }: { user: any, onL
        const bookingGuests = digitsMatch[0];
        setPendingBooking({ guests: bookingGuests });
        setChatState('WAITING_FOR_TIME');
-       addBotMessage(currentLanguage === 'english' ? "Which time slot do you prefer? (Available: 7 PM, 8 PM, 9 PM)" : "Kis time ka slot chahiye? (Available: 7 PM, 8 PM, 9 PM)");
+       addBotMessage(currentLanguage === 'english' ? "Which time slot do you prefer?" : "Kis time ka slot chahiye?", ["7 PM", "8 PM", "9 PM", "10 PM"]);
        return;
     }
 
     if (chatState === 'WAITING_FOR_TIME') {
-       const timeMatch = text.match(/[789]/);
+       const timeMatch = text.match(/(7|setaat|8|aath|9|nau|10|das)(\s*PM)?/i);
        if (!timeMatch) {
-          addBotMessage(currentLanguage === 'english' ? "Sorry, we only have 7 PM, 8 PM, or 9 PM slots available." : "Maazrat, hamare paas sirf 7 PM, 8 PM, aur 9 PM ki table available hai. Inme se koi ek time type karein.");
+          addBotMessage(currentLanguage === 'english' ? "Sorry, we only have 7 PM, 8 PM, 9 PM or 10 PM slots available." : "Maazrat, hamare paas sirf 7 PM se 10 PM tak ki table available hai.");
           return;
        }
-       const bookingTime = timeMatch[0] + " PM";
+       let mappedTime = timeMatch[1].toLowerCase();
+       if (mappedTime === 'setaat') mappedTime = '7';
+       if (mappedTime === 'aath') mappedTime = '8';
+       if (mappedTime === 'nau') mappedTime = '9';
+       if (mappedTime === 'das') mappedTime = '10';
+       const bookingTime = mappedTime + " PM";
        setPendingBooking(prev => ({ ...prev, time: bookingTime }));
        setChatState('WAITING_FOR_NAME');
        addBotMessage(currentLanguage === 'english' ? "Please enter your full name to confirm the reservation." : "Booking confirm karne ke liye apna mukammal naam batayein.");
@@ -307,19 +417,39 @@ export function ChatApp({ user, onLogout, toggleTheme, theme }: { user: any, onL
     }
 
     if (chatState === 'WAITING_FOR_NAME') {
-       const bookingName = text;
-       await supabase.from('bookings').insert({ user_id: user.id, customer_name: bookingName, guests: pendingBooking.guests, booking_time: pendingBooking.time });
+       if (text.trim().length <= 2) {
+           addBotMessage(currentLanguage === 'english' ? "Name is missing or too short. Please provide your full name." : "Naam theek nahi hai. Barahe karam apna pura naam darj karein.");
+           return;
+       }
+       const bookingName = text.trim();
+       setBookingInfo(prev => ({ ...prev, name: bookingName }));
+       setChatState('WAITING_FOR_PHONE');
+       addBotMessage(currentLanguage === 'english' ? "Finally, please provide a valid 11-digit Pakistani mobile number to confirm the booking." : "Booking confirm karne ke liye apna 11-digit mobile number likhein.");
+       return;
+    }
+
+    if (chatState === 'WAITING_FOR_PHONE') {
+       const phoneMatch = text.match(/^((\+92)?(0092)?(92)?(0)?)(3[0-9]{2})[0-9]{7}$/);
+       if (!phoneMatch) {
+           addBotMessage(currentLanguage === 'english' ? "Invalid phone format. We require a valid 11-digit Pakistani mobile number." : "Mobile number theek nahi hai. Barahe karam sahi 11-digit Pakistani number likhein.");
+           return;
+       }
+
+       const phoneNum = text.trim();
+       await supabase.from('bookings').insert({ user_id: user.id, customer_name: bookingInfo.name, guests: pendingBooking.guests, booking_time: pendingBooking.time });
        
        const newBooking = { id: 'TABLE-' + Math.floor(100+Math.random()*900), details: `Table for ${pendingBooking.guests} at ${pendingBooking.time}`, total: 0, date: new Date().toISOString(), status: 'Reserved' };
        setOrderHistory(prev => [newBooking, ...prev]);
 
+       setSuccessPopup({ title: 'Booking Confirmed!', message: `Table reserved successfully for ${bookingInfo.name}.\nSee you at ${pendingBooking.time}!`});
+
        addBotMessage(
          currentLanguage === 'english' 
-           ? `Reservation Confirmed! Name: ${bookingName}, Guests: ${pendingBooking.guests}, Time: ${pendingBooking.time}. We look forward to hosting you at the Gulshan Branch.` 
-           : `Booking Confirm! Name: ${bookingName}, Guests: ${pendingBooking.guests}, Time: ${pendingBooking.time}. Gulshan Branch me aapka intezar rahega.`, 
-         ["View Menu"]
+           ? `Reservation Confirmed! Name: ${bookingInfo.name}, Guests: ${pendingBooking.guests}, Time: ${pendingBooking.time}. We look forward to hosting you at the Gulshan Branch.` 
+           : `Booking Confirm! Name: ${bookingInfo.name}, Guests: ${pendingBooking.guests}, Time: ${pendingBooking.time}. Gulshan Branch me aapka intezar rahega.`, 
+         ["New Chat"]
        );
-       setChatState('WELCOME');
+       setChatState('COMPLETED');
        setPendingBooking(null);
        return;
     }
@@ -341,21 +471,67 @@ export function ChatApp({ user, onLogout, toggleTheme, theme }: { user: any, onL
   const generatePDFReceipt = (order: any) => {
     const doc = new jsPDF();
     
+    // Abstract Logo Background
+    doc.setFillColor(239, 68, 68); // SpiceHub primary red approximate
+    doc.rect(20, 15, 15, 15, 'F');
+    doc.setTextColor(255, 255, 255);
     doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text("SH", 23, 25);
+
+    // Title
+    doc.setTextColor(0, 0, 0);
     doc.setFontSize(22);
-    doc.text("Spice Hub Receipt", 20, 20);
+    doc.text("SpiceHub Elite Receipt", 40, 25);
+
+    doc.setLineWidth(0.5);
+    doc.line(20, 35, 190, 35);
     
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(14);
-    doc.text(`Tracking/Booking ID: ${order.id}`, 20, 40);
-    doc.text(`Date: ${new Date(order.date).toLocaleString()}`, 20, 50);
-    doc.text(`Details: ${order.details}`, 20, 60);
-    doc.text(`Total amount: Rs. ${order.total}`, 20, 70);
-    doc.text(`Current Status: ${order.status}`, 20, 80);
+    doc.setFontSize(12);
+    doc.text(`Tracking ID: ${order.id}`, 20, 45);
+    doc.text(`Date: ${new Date(order.date).toLocaleString()}`, 20, 55);
     
+    // Receipt body
+    doc.setFont("helvetica", "bold");
+    doc.text("Item Name", 20, 70);
+    doc.text("Quantity", 110, 70);
+    doc.setLineWidth(0.2);
+    doc.line(20, 72, 190, 72);
+
+    doc.setFont("helvetica", "normal");
+    let y = 78;
+    const items = order.details.split(', ');
+    items.forEach((item: string) => {
+       const match = item.match(/^(\d+)x\s+(.*)$/);
+       if (match) {
+          doc.text(match[2], 20, y);
+          doc.text(match[1], 110, y);
+       } else {
+          doc.text(item, 20, y);
+       }
+       y += 8;
+    });
+
+    const detailsHeight = y - 70;
+    doc.setFont("helvetica", "bold");
+    // Explicitly removed dashes/negative signs
+    doc.text(`Total Amount: Rs. ${order.total}`, 20, 70 + detailsHeight + 10);
+    
+    // Status
+    const statusY = 70 + detailsHeight + 25;
+    doc.setFont("helvetica", "normal");
+    doc.text(`Current Status: `, 20, statusY);
+    doc.setTextColor(0, 150, 0);
+    doc.setFont("helvetica", "bold");
+    doc.text(`${order.status.toUpperCase()}`, 53, statusY);
+
+    // Footer
+    doc.setLineWidth(0.5);
+    doc.line(20, 110 + detailsHeight, 190, 110 + detailsHeight);
     doc.setFontSize(10);
-    doc.setTextColor(100);
-    doc.text("Thank you for choosing Spice Hub! Have a great day.", 20, 100);
+    doc.setTextColor(150);
+    doc.text("Thank you for choosing SpiceHub Elite! Please visit again.", 20, 120 + detailsHeight);
     
     doc.save(`SpiceHub_Receipt_${order.id}.pdf`);
   };
@@ -403,6 +579,7 @@ export function ChatApp({ user, onLogout, toggleTheme, theme }: { user: any, onL
         onHoverStart={() => setIsSidebarOpen(true)}
         onHoverEnd={() => setIsSidebarOpen(false)}
         animate={{ width: isSidebarOpen ? 240 : 64 }}
+        transition={{ type: "spring", stiffness: 250, damping: 22, mass: 0.8 }}
         className="relative z-20 flex h-full shrink-0 flex-col items-center py-6 border-r border-border bg-surface shadow-2xl overflow-hidden"
       >
         <div className="flex shrink-0 items-center px-4 w-full">
@@ -424,6 +601,25 @@ export function ChatApp({ user, onLogout, toggleTheme, theme }: { user: any, onL
             <Settings className="shrink-0 text-content-muted group-hover:text-content transition-colors" size={24} />
             {isSidebarOpen && <span className="ml-4 flex-1 text-left whitespace-nowrap font-medium text-content">SpiceHub Control Panel</span>}
           </button>
+          
+          {isSidebarOpen && activeLiveOrders.length > 0 && (
+             <div className="mt-6 px-3">
+               <h3 className="text-xs font-black uppercase text-content-muted tracking-widest mb-3 flex items-center gap-2">
+                 <div className="w-2 h-2 rounded-full bg-primary animate-pulse"></div> Active Orders
+               </h3>
+               <div className="flex flex-col gap-3">
+                 {activeLiveOrders.map(order => (
+                    <div key={order.id} className="bg-base border border-border p-3 rounded-xl flex flex-col gap-1.5 shadow-sm">
+                       <div className="flex justify-between items-center text-xs">
+                          <span className="font-bold text-content">{order.id}</span>
+                          <span className="bg-primary/10 text-primary px-2 py-0.5 rounded-md font-bold tracking-wide uppercase text-[10px]">{order.status}</span>
+                       </div>
+                       <span className="text-xs text-content-muted truncate">{order.details}</span>
+                    </div>
+                 ))}
+               </div>
+             </div>
+          )}
         </nav>
       </motion.aside>
 
@@ -433,34 +629,40 @@ export function ChatApp({ user, onLogout, toggleTheme, theme }: { user: any, onL
         {/* Header */}
         <header className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-base/80 px-6 backdrop-blur-md">
           <div className="flex items-center">
-             <div className="relative flex items-center justify-center h-10 w-10 bg-primary rounded-lg text-white shadow-lg shadow-primary/20">
+             <div className="relative flex items-center justify-center h-10 w-10 bg-primary/20 rounded-lg text-primary">
                 <Sparkles size={20} />
-                <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-base animate-pulse"></div>
              </div>
              <div className="ml-3 flex flex-col">
-                <div className="flex items-center gap-2">
-                   <h1 className="text-sm font-bold tracking-tight text-white uppercase">BiteBuddy</h1>
-                </div>
-                <div className="flex items-center">
-                   <p className="text-[10px] text-content-muted font-mono tracking-widest uppercase">#SPICEBOT-ELITE • ONLINE</p>
-                </div>
+                <h1 className="text-sm font-black tracking-tight text-content uppercase">BiteBuddy Chat</h1>
              </div>
           </div>
           <div className="flex items-center gap-4">
+             {orderCart.length > 0 && cartTick >= 0 && (
+               <motion.div 
+                   className="relative"
+                   key={cartTick + "bounce"}
+                   initial={{ scale: 1 }}
+                   animate={{ scale: [1, 1.2, 0.9, 1.1, 1] }} 
+                   transition={{ duration: 0.4 }}
+               >
+                 <button onClick={() => setIsCartDrawerOpen(!isCartDrawerOpen)} className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-hover text-primary hover:text-white hover:bg-primary transition-colors">
+                   <ShoppingBag size={20} />
+                 </button>
+                 <motion.span 
+                   key={cartTick}
+                   initial={{ scale: 0.5 }}
+                   animate={{ scale: 1 }}
+                   className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white pointer-events-none shadow-sm"
+                 >
+                   {orderCart.reduce((acc, item) => acc + item.qty, 0)}
+                 </motion.span>
+               </motion.div>
+             )}
              <button onClick={toggleTheme} className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-hover text-content-muted hover:text-content">
                {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
              </button>
-             <div className="group relative">
-                <div className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-primary font-bold text-white shadow-md">
-                   {user.email?.[0].toUpperCase()}
-                </div>
-                <div className="absolute right-0 top-full mt-2 hidden w-48 flex-col rounded-xl border border-border bg-surface p-2 shadow-xl group-hover:flex z-50">
-                   <span className="px-3 py-2 text-xs font-medium text-content-muted truncate">{user.email}</span>
-                   <hr className="my-1 border-border" />
-                   <button onClick={onLogout} className="flex items-center rounded-lg px-3 py-2 text-sm font-medium text-red-500 hover:bg-surface-hover">
-                      <LogOut size={16} className="mr-2" /> Logout
-                   </button>
-                </div>
+             <div className="flex items-center justify-center px-4 h-10 rounded-full bg-surface-hover text-sm font-bold text-content-muted hover:text-content hover:bg-border transition-colors cursor-default">
+                {user.email}
              </div>
           </div>
         </header>
@@ -527,6 +729,14 @@ export function ChatApp({ user, onLogout, toggleTheme, theme }: { user: any, onL
                      </div>
                    </div>
                  </div>
+                 
+                 <div className="flex items-center justify-between p-5 bg-red-500/10 rounded-xl border border-red-500/20 relative z-10 w-full overflow-visible box-border">
+                   <div>
+                     <h3 className="font-bold text-red-500 text-lg">End Active Session</h3>
+                     <p className="text-xs text-red-400 mt-1">Disconnect this device and securely clear application state.</p>
+                   </div>
+                   <button onClick={onLogout} className="px-6 py-3 bg-red-500 text-white rounded-lg text-sm font-black uppercase tracking-wider hover:bg-red-600 active:scale-95 transition-all shadow-md shrink-0 block static visible opacity-100 cursor-pointer z-20">Logout Session</button>
+                 </div>
                </div>
             </div>
           </div>
@@ -588,6 +798,55 @@ export function ChatApp({ user, onLogout, toggleTheme, theme }: { user: any, onL
                           ))}
                         </div>
                       )}
+                      {msg.menuCategories && msg.menuCategories.length > 0 && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4 w-full">
+                           {msg.menuCategories.map((cat, i) => {
+                             // Distinctive category accent colors
+                             const catBg = cat.category === 'Burgers' ? 'bg-amber-500/10' :
+                                           cat.category === 'Pizza' ? 'bg-red-500/10' :
+                                           cat.category === 'Biryani' ? 'bg-orange-500/10' :
+                                           'bg-blue-500/10';
+                             const catBorder = cat.category === 'Burgers' ? 'border-amber-500/20' :
+                                           cat.category === 'Pizza' ? 'border-red-500/20' :
+                                           cat.category === 'Biryani' ? 'border-orange-500/20' :
+                                           'border-blue-500/20';
+                             const catText = cat.category === 'Burgers' ? 'text-amber-600 dark:text-amber-400' :
+                                           cat.category === 'Pizza' ? 'text-red-600 dark:text-red-400' :
+                                           cat.category === 'Biryani' ? 'text-orange-600 dark:text-orange-400' :
+                                           'text-blue-600 dark:text-blue-400';
+                             
+                             return (
+                              <div key={i} className={`p-4 rounded-2xl border ${catBg} ${catBorder} shadow-sm backdrop-blur-sm`}>
+                                 <h4 className={`font-black text-lg ${catText} mb-3 flex items-center gap-2`}>
+                                     {cat.category === 'Burgers' ? '🍔' : cat.category === 'Pizza' ? '🍕' : cat.category === 'Biryani' ? '🍚' : '🥤'} {cat.category}
+                                 </h4>
+                                 <div className="flex flex-col gap-2">
+                                     {cat.items.map((item: any, j: number) => (
+                                        <button 
+                                            key={j} 
+                                            data-pill={item.name} 
+                                            className="text-left w-full bg-base/50 hover:bg-base/80 p-2.5 rounded-xl transition-all flex justify-between items-center group shadow-sm"
+                                        >
+                                           <span className="font-bold text-sm text-content group-hover:text-primary transition-colors">{item.name}</span>
+                                           <div className="bg-surface px-2 py-1 rounded text-xs font-black text-content-muted">Rs. {item.price}</div>
+                                        </button>
+                                     ))}
+                                 </div>
+                              </div>
+                             );
+                           })}
+                        </div>
+                      )}
+                      {msg.orderData && (
+                        <div className="flex gap-2 pt-2">
+                            <button onClick={() => generatePDFReceipt(msg.orderData)} className="flex items-center gap-2 bg-base border border-border text-primary hover:bg-primary/10 rounded-lg px-3 py-2 text-xs font-bold transition-colors">
+                                <Download size={14}/> Download Receipt
+                            </button>
+                            <button onClick={() => onCancelOrder(msg.orderData.id)} className="flex items-center gap-2 bg-base border border-border text-red-500 hover:bg-red-500/10 rounded-lg px-3 py-2 text-xs font-bold transition-colors">
+                                <XCircle size={14}/> Cancel Order
+                            </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </motion.div>
@@ -595,7 +854,7 @@ export function ChatApp({ user, onLogout, toggleTheme, theme }: { user: any, onL
             </div>
 
             {/* Input Footer */}
-            <div className="p-6 bg-base/90 border-t border-border">
+            <div className="p-6 bg-base/90 border-t border-border relative">
                <div className="mx-auto flex max-w-4xl items-center space-x-4 bg-surface-hover p-2 rounded-2xl border border-border shadow-inner">
                  <button className="p-3 text-content-muted hover:text-white transition-colors">
                    <Paperclip size={20} />
@@ -625,6 +884,54 @@ export function ChatApp({ user, onLogout, toggleTheme, theme }: { user: any, onL
 
         {/* Overlays */}
         <AnimatePresence>
+          {isCartDrawerOpen && (
+             <motion.div key="cart-drawer-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex justify-end">
+               <motion.div 
+                 key="cart-drawer-content"
+                 initial={{ x: "100%", opacity: 0 }}
+                 animate={{ x: 0, opacity: 1 }}
+                 exit={{ x: "100%", opacity: 0 }}
+                 transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                 className="w-full max-w-2xl bg-base h-full shadow-2xl flex flex-col p-6 overflow-y-auto border-l border-border"
+               >
+                 <div className="flex justify-between items-center pb-6 border-b border-border">
+                   <h2 className="text-3xl font-black text-primary flex items-center gap-3">
+                      <ShoppingBag size={32}/> Global Cart Contents
+                   </h2>
+                   <button onClick={() => setIsCartDrawerOpen(false)} className="text-content-muted hover:text-red-500 transition-colors p-2 bg-surface-hover rounded-full">
+                      <XCircle size={32} />
+                   </button>
+                 </div>
+               
+                 {orderCart.length === 0 ? (
+                  <div className="py-24 text-center flex flex-col items-center justify-center gap-4 flex-1">
+                     <ShoppingBag size={64} className="text-content-muted opacity-50" />
+                     <p className="font-bold text-content-muted text-xl">Your cart is completely empty.</p>
+                  </div>
+               ) : (
+                 <div className="flex flex-col flex-1 mt-6 w-full">
+                   <div className="flex flex-col gap-4 overflow-y-auto pr-2 pb-10">
+                     {orderCart.map((item, idx) => (
+                        <div key={idx} className="flex justify-between items-center bg-surface-hover p-4 rounded-xl border border-border">
+                           <div className="flex items-center gap-4">
+                              <span className="bg-primary/20 text-primary font-black px-3 py-1.5 rounded-lg text-lg">{item.qty}x</span>
+                              <span className="font-bold text-content text-xl">{item.name}</span>
+                           </div>
+                           <span className="font-black text-primary text-xl">Rs. {item.price * item.qty}</span>
+                        </div>
+                     ))}
+                   </div>
+                   <div className="pt-6 border-t border-border flex justify-between items-center mt-auto pb-4 sticky bottom-0 bg-base">
+                     <span className="font-black text-3xl text-content">Total: Rs. {orderCart.reduce((acc, item) => acc + item.price * item.qty, 0)}</span>
+                     <button onClick={() => { handleSend("Checkout"); setIsCartDrawerOpen(false); }} className="bg-primary text-white hover:bg-primary/90 px-10 py-4 rounded-xl font-black text-xl transition-transform hover:scale-[1.02] active:scale-95 shadow-2xl shadow-primary/30">
+                       Checkout Now
+                     </button>
+                   </div>
+                 </div>
+               )}
+               </motion.div>
+             </motion.div>
+          )}
           {showOrderHistory && (
              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-40 bg-black/50 backdrop-blur-sm flex items-center justify-center">
                <div className="w-full max-w-md bg-surface border border-border p-6 rounded-2xl shadow-2xl relative">
@@ -708,6 +1015,94 @@ export function ChatApp({ user, onLogout, toggleTheme, theme }: { user: any, onL
                 </div>
               </div>
             </motion.div>
+          )}
+
+          {selectedProduct && (
+             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+               <div className="w-full max-w-md bg-surface border border-border p-6 rounded-3xl shadow-2xl relative">
+                  <button onClick={() => setSelectedProduct(null)} className="absolute top-4 right-4 text-content-muted hover:text-content">
+                    <XCircle size={24} />
+                  </button>
+                  
+                  <div className="flex items-center gap-4 mb-6">
+                     <div className="w-16 h-16 rounded-2xl bg-primary/20 flex items-center justify-center text-primary">
+                        <ShoppingBag size={32} />
+                     </div>
+                     <div>
+                        <h2 className="text-2xl font-black">{selectedProduct.name}</h2>
+                         <p className="text-content-muted">{selectedProduct.category}</p>
+                     </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div>
+                        <p className="font-bold mb-3">Select Size</p>
+                        <div className="flex gap-3">
+                            {['Small', 'Medium', 'Large'].map((s) => (
+                                <button 
+                                    key={s} 
+                                    onClick={() => setProductSize(s as any)}
+                                    className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-all ${productSize === s ? 'bg-primary border-primary text-white shadow-md' : 'bg-surface border-border text-content hover:bg-surface-hover'}`}
+                                >
+                                    {s}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div>
+                        <p className="font-bold mb-3">Quantity</p>
+                        <div className="flex items-center gap-4 border border-border bg-surface rounded-xl p-2 w-fit">
+                            <button onClick={() => setProductQty(Math.max(1, productQty - 1))} className="p-2 rounded-lg bg-surface-hover text-content hover:bg-border transition-colors">-</button>
+                            <span className="font-bold w-4 text-center">{productQty}</span>
+                            <button onClick={() => setProductQty(productQty + 1)} className="p-2 rounded-lg bg-surface-hover text-content hover:bg-border transition-colors">+</button>
+                        </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-8 flex flex-col sm:flex-row gap-3">
+                     <button onClick={() => {
+                         const sizeMultiplier = productSize === 'Small' ? 0.8 : productSize === 'Large' ? 1.3 : 1;
+                         const finalPrice = Math.round(selectedProduct.price * sizeMultiplier);
+                         orderCart.push({ name: `${selectedProduct.name} (${productSize})`, price: finalPrice, qty: productQty });
+                         setCartTick(t => t + 1); 
+                         setSelectedProduct(null);
+                         setChatState('GENERAL');
+
+                         const cartTotal = orderCart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+                         const hasDrink = orderCart.some(item => item.name.toLowerCase().includes('drink') || item.name.toLowerCase().includes('water'));
+                         let comboMsg = "";
+                         if (cartTotal > 1000 && !hasDrink) {
+                             comboMsg = currentLanguage === 'english' 
+                               ? "\n\n💡 Combo Deal: Your order is over Rs. 1000! Would you like to add a Cold Drink?"
+                               : "\n\n💡 Combo Deal: Aapka bill Rs. 1000 se zyada hai! Cold Drink add karein?";
+                         }
+
+                         addBotMessage(
+                           currentLanguage === 'english'
+                             ? `${productQty}x ${selectedProduct.name} (${productSize}) added to cart! 🛒${comboMsg}`
+                             : `${productQty}x ${selectedProduct.name} (${productSize}) cart mein add ho gaye! 🛒${comboMsg}`,
+                           currentLanguage === 'english' 
+                              ? (comboMsg ? ["Cold Drink 350ml", "Menu", "Checkout"] : ["Menu", "Checkout"])
+                              : (comboMsg ? ["Cold Drink 350ml", "Menu", "Checkout"] : ["Menu", "Checkout"])
+                         );
+                     }} className="flex-1 py-4 bg-surface-hover border border-border text-content text-sm font-bold tracking-wide rounded-2xl hover:bg-surface transition-all">
+                       Add to Cart • Rs. {Math.round(selectedProduct.price * (productSize === 'Small' ? 0.8 : productSize === 'Large' ? 1.3 : 1) * productQty)}
+                     </button>
+
+                     <button onClick={() => {
+                         const sizeMultiplier = productSize === 'Small' ? 0.8 : productSize === 'Large' ? 1.3 : 1;
+                         const finalPrice = Math.round(selectedProduct.price * sizeMultiplier);
+                         orderCart.push({ name: `${selectedProduct.name} (${productSize})`, price: finalPrice, qty: productQty });
+                         setCartTick(t => t + 1); 
+                         setSelectedProduct(null);
+                         handleSend('Checkout');
+                     }} className="flex-1 py-4 bg-primary text-white text-sm font-black tracking-wide rounded-2xl shadow-xl shadow-primary/30 hover:scale-[1.02] active:scale-95 transition-all">
+                       Proceed to Checkout
+                     </button>
+                  </div>
+               </div>
+             </motion.div>
           )}
         </AnimatePresence>
       </div>

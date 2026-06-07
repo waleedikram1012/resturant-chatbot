@@ -4,7 +4,7 @@ import { cn } from '../lib/utils';
 import { Eye, EyeOff, CheckCircle2, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-export function AuthModal({ onAuthenticated }: { onAuthenticated: () => void }) {
+export function AuthModal({ onAuthenticated }: { onAuthenticated: (user?: any) => void }) {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -35,6 +35,12 @@ export function AuthModal({ onAuthenticated }: { onAuthenticated: () => void }) 
     e.preventDefault();
     setErrorText('');
     setLoading(true);
+
+    const savedAdminPass = localStorage.getItem('admin_password') || 'admin123';
+    if (email === 'admin@spicehub.com' && password === savedAdminPass) {
+      onAuthenticated({ email: 'admin@spicehub.com', role: 'admin' });
+      return;
+    }
 
     let res;
     if (isLogin) {
