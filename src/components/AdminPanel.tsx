@@ -13,7 +13,7 @@ const ORDER_TRENDS_DATA = [
   { time: '00:00', Burgers: 30, Pizza: 45, Biryani: 12, Drinks: 40 }
 ];
 
-export function AdminPanel({ botStatus, setBotStatus, onLogout }: any) {
+export function AdminPanel({ botStatus, setBotStatus, onLogout, onCloseAdmin }: any) {
   const [activeTab, setActiveTab] = useState<'Chatbots' | 'Inbox' | 'Orders' | 'Analytics' | 'Team' | 'Settings'>('Chatbots');
   const [timeRange, setTimeRange] = useState('Today');
 
@@ -366,6 +366,12 @@ export function AdminPanel({ botStatus, setBotStatus, onLogout }: any) {
                     <option value="AGENT">AGENT Role (Locked)</option>
                  </select>
              </div>
+
+             {onCloseAdmin && (
+                <button onClick={onCloseAdmin} className="flex items-center gap-3 text-zinc-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors p-2 w-full text-left mt-2">
+                  <XCircle size={20} className="text-emerald-500" /> <span className="font-bold text-sm">Back to Website</span>
+                </button>
+             )}
 
              <button onClick={onLogout} className="flex items-center gap-3 text-red-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors p-2">
                <Power size={20} /> <span className="font-bold text-sm">Sign Out</span>

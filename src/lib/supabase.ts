@@ -5,6 +5,63 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "your_supabase
 
 const isMock = !supabaseUrl || supabaseUrl === "your_supabase_url_here" || !supabaseUrl.startsWith("http");
 
+function getMockTableData(table: string): any[] {
+  try {
+    const data = localStorage.getItem(`spicehub_mock_table_${table}`);
+    if (data) return JSON.parse(data);
+  } catch (e) {}
+  
+  if (table === 'orders') {
+    return [
+      { id: 'SPH123', details: '2x Biryani, 1x Cold Drink', total: 1150, status: 'Out for Delivery. 20 min me pahunchega.', created_at: new Date(Date.now() - 3600000).toISOString(), user_id: 'guest-123' },
+      { id: 'SPH124', details: '1x Garlic Mayo Burger', total: 450, status: 'Preparing', created_at: new Date(Date.now() - 10 * 3600000).toISOString(), user_id: 'guest-124' }
+    ];
+  }
+  return [];
+}
+
+function saveMockTableData(table: string, data: any[]) {
+  try {
+    localStorage.setItem(`spicehub_mock_table_${table}`, JSON.stringify(data));
+  } catch (e) {}
+}
+
+function createChainablePromise(table: string, result: any) {
+  const chain: any = {
+    then: (resolve: any, reject: any) => Promise.resolve(result).then(resolve, reject),
+  };
+  
+  const methods = ['select', 'insert', 'update', 'delete', 'upsert', 'eq', 'order', 'or', 'and', 'match', 'single', 'limit', 'gt', 'lt'];
+  methods.forEach(method => {
+    chain[method] = (...args: any[]) => {
+      if (method === 'eq') {
+        const [column, value] = args;
+        let filteredData = Array.isArray(result?.data) ? result.data : [];
+        if (column && value !== undefined) {
+          filteredData = filteredData.filter((item: any) => item[column] == value);
+        }
+        return createChainablePromise(table, { data: filteredData, error: null });
+      }
+      if (method === 'order') {
+        const [column, options] = args;
+        const ascending = options?.ascending !== false;
+        let sortedData = Array.isArray(result?.data) ? [...result.data] : [];
+        if (column) {
+          sortedData.sort((a: any, b: any) => {
+            if (a[column] < b[column]) return ascending ? -1 : 1;
+            if (a[column] > b[column]) return ascending ? 1 : -1;
+            return 0;
+          });
+        }
+        return createChainablePromise(table, { data: sortedData, error: null });
+      }
+      return chain;
+    };
+  });
+  
+  return chain;
+}
+
 function createMockSupabase() {
   let listeners: any[] = [];
   let currentUser: any = null;
@@ -88,26 +145,39 @@ function createMockSupabase() {
       },
     },
     from: (table: string) => {
-      return {
-        insert: async (data: any) => {
-          console.log(`Mock insert into ${table}:`, data);
-          // Return generic success
-          return { data: [data], error: null };
-        },
-        select: (columns?: string) => {
-          return {
-             eq: async (column: string, value: any) => {
-                if (table === "orders") {
-                   if (value === "SPH123") return { data: [{ status: "Out for Delivery. 20 min me pahunchega." }], error: null };
-                   if (value === "SPH124") return { data: [{ status: "Preparing." }], error: null };
-                   // Mock check if recently inserted via local state, simplified to just return not found for others
-                   return { data: [], error: null };
-                }
-                return { data: [], error: null };
-             }
-          }
-        }
+      const initialData = getMockTableData(table);
+      const chain = createChainablePromise(table, { data: initialData, error: null });
+      
+      // Augment chain with insert helper
+      chain.insert = async (data: any) => {
+        console.log(`Mock insert into ${table}:`, data);
+        const list = getMockTableData(table);
+        const itemsToInsert = Array.isArray(data) ? data : [data];
+        const newItems = itemsToInsert.map(item => ({
+          id: item.id || `SPH-${Math.floor(100000 + Math.random() * 900000)}`,
+          created_at: new Date().toISOString(),
+          ...item
+        }));
+        const updatedList = [...newItems, ...list];
+        saveMockTableData(table, updatedList);
+        return { data: newItems, error: null };
       };
+
+      chain.delete = () => {
+        // Return a mock delete action that can chain .eq() and delete elements
+        const deleteChain = {
+          eq: async (column: string, value: any) => {
+            console.log(`Mock delete from ${table} where ${column} = ${value}`);
+            const list = getMockTableData(table);
+            const filtered = list.filter(item => item[column] != value);
+            saveMockTableData(table, filtered);
+            return { data: [], error: null };
+          }
+        };
+        return deleteChain;
+      };
+
+      return chain;
     },
   };
 }

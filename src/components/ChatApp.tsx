@@ -65,6 +65,8 @@ export function ChatApp({
   theme,
   botStatus,
   onLoginClick,
+  isAdminOpen,
+  setIsAdminOpen,
 }: {
   user: any;
   onLogout: () => void;
@@ -72,6 +74,8 @@ export function ChatApp({
   theme: string;
   botStatus: "ON" | "OFF";
   onLoginClick?: () => void;
+  isAdminOpen?: boolean;
+  setIsAdminOpen?: (open: boolean) => void;
 }) {
   const currentLanguage = "roman_urdu";
   const [messages, setMessages] = useState<Message[]>(() => {
@@ -1529,8 +1533,9 @@ ${
             <button
               onClick={() => {
                 if (user?.email === 'admin@spicehub.com') {
-                  setIsWidgetOpen(true);
-                  setShowSettings(true);
+                  if (setIsAdminOpen) {
+                    setIsAdminOpen(true);
+                  }
                 } else {
                   if (onLoginClick) {
                     onLoginClick();

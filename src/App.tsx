@@ -8,6 +8,7 @@ export default function App() {
   const [session, setSession] = useState<any>(null);
   const [adminUser, setAdminUser] = useState<any>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [botStatus, setBotStatus] = useState<'ON' | 'OFF'>('ON');
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -70,17 +71,19 @@ export default function App() {
     <>
       <ChatApp 
         user={userToPass || { id: "guest", email: "Guest Visitor", user_metadata: { name: "Guest Visitor" } }} 
-        onLogout={() => { setAdminUser(null); supabase.auth.signOut(); setShowLoginModal(true); }} 
+        onLogout={() => { setAdminUser(null); supabase.auth.signOut(); setIsAdminOpen(false); setShowLoginModal(true); }} 
         toggleTheme={toggleTheme}
         theme={theme}
         botStatus={botStatus}
         onLoginClick={() => setShowLoginModal(true)}
+        isAdminOpen={isAdminOpen}
+        setIsAdminOpen={setIsAdminOpen}
       />
       {(!userToPass && showLoginModal) && (
-        <AuthModal onAuthenticated={(u) => { if (u) setAdminUser(u); setShowLoginModal(false); }} onClose={() => setShowLoginModal(false)} />
+        <AuthModal onAuthenticated={(u) => { if (u) { setAdminUser(u); if (u.email === 'admin@spicehub.com') setIsAdminOpen(true); } setShowLoginModal(false); }} onClose={() => setShowLoginModal(false)} />
       )}
-      {userToPass?.email === 'admin@spicehub.com' && (
-        <AdminPanel botStatus={botStatus} setBotStatus={setBotStatus} onLogout={() => { setAdminUser(null); supabase.auth.signOut(); setShowLoginModal(true); }} />
+      {(userToPass?.email === 'admin@spicehub.com' && isAdminOpen) && (
+        <AdminPanel botStatus={botStatus} setBotStatus={setBotStatus} onLogout={() => { setAdminUser(null); supabase.auth.signOut(); setIsAdminOpen(false); setShowLoginModal(true); }} onCloseAdmin={() => setIsAdminOpen(false)} />
       )}
     </>
   );
