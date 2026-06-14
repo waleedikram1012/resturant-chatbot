@@ -15,6 +15,10 @@ export default function App() {
     const saved = localStorage.getItem('spicehub_theme');
     return saved ? (saved as 'dark' | 'light') : 'dark';
   });
+  const [isAdminUrl, setIsAdminUrl] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('view') === 'admin' || params.get('route') === 'admin';
+  });
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -29,6 +33,32 @@ export default function App() {
     });
 
     return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const checkUrl = () => {
+      const params = new URLSearchParams(window.location.search);
+      const isA = params.get('view') === 'admin' || params.get('route') === 'admin';
+      setIsAdminUrl(isA);
+      if (isA) {
+        setIsAdminOpen(true);
+      }
+    };
+
+    window.addEventListener('popstate', checkUrl);
+    window.addEventListener('pushstate', checkUrl);
+    
+    // Check initially and on state/url updates
+    checkUrl();
+
+    // Small interval to listen for any manually pushed window.history changes nicely
+    const interval = setInterval(checkUrl, 500);
+
+    return () => {
+      window.removeEventListener('popstate', checkUrl);
+      window.removeEventListener('pushstate', checkUrl);
+      clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
@@ -67,11 +97,63 @@ export default function App() {
 
   const userToPass = adminUser || session?.user;
 
+  // Fully forced bypass for URL query routing parameters if user is not authorized as Admin Owner yet:
+  if (isAdminUrl && userToPass?.email !== 'admin@spicehub.com') {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#0d0e12] text-white">
+        {/* Decorative ambient spots */}
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900/60 via-[#0d0e12] to-black opacity-90" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff03_1px,transparent_1px),linear-gradient(to_bottom,#ffffff03_1px,transparent_1px)] bg-[size:32px_32px]" />
+        
+        {/* Brand label above center form */}
+        <div className="relative z-[60] mb-6">
+          <div className="flex h-20 w-20 items-center justify-center rounded-[2rem] bg-gradient-to-tr from-primary to-orange-400 text-[#0d0e12] shadow-2xl shadow-primary/30 rotate-6 hover:rotate-0 transition-transform cursor-pointer">
+             <span className="text-3xl font-black italic tracking-tighter">SH</span>
+          </div>
+        </div>
+
+        <div className="relative z-50 w-full max-w-sm px-4">
+          <AuthModal 
+            onAuthenticated={(u) => { 
+                if (u) { 
+                  setAdminUser(u); 
+                  if (u.email === 'admin@spicehub.com') {
+                    setIsAdminOpen(true); 
+                  }
+                } 
+            }} 
+          />
+        </div>
+        
+        {/* Navigation back helper */}
+        <button 
+          onClick={() => {
+            const newurl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+            window.history.pushState({path:newurl},'',newurl);
+            setIsAdminUrl(false);
+            setIsAdminOpen(false);
+          }}
+          className="relative z-50 mt-8 text-xs font-bold uppercase tracking-widest text-zinc-400 hover:text-white transition-colors border border-white/5 bg-zinc-900/60 hover:bg-zinc-800/80 px-6 py-3 rounded-full backdrop-blur-md cursor-pointer flex items-center gap-2 shadow-lg hover:border-white/10"
+        >
+          ← Go Back to Landing Page
+        </button>
+      </div>
+    );
+  }
+
   return (
     <>
       <ChatApp 
         user={userToPass || { id: "guest", email: "Guest Visitor", user_metadata: { name: "Guest Visitor" } }} 
-        onLogout={() => { setAdminUser(null); supabase.auth.signOut(); setIsAdminOpen(false); setShowLoginModal(true); }} 
+        onLogout={() => { 
+          setAdminUser(null); 
+          supabase.auth.signOut(); 
+          setIsAdminOpen(false); 
+          const newurl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+          window.history.pushState({path:newurl},'',newurl);
+          setIsAdminUrl(false);
+          setShowLoginModal(true); 
+        }} 
         toggleTheme={toggleTheme}
         theme={theme}
         botStatus={botStatus}
@@ -83,7 +165,25 @@ export default function App() {
         <AuthModal onAuthenticated={(u) => { if (u) { setAdminUser(u); if (u.email === 'admin@spicehub.com') setIsAdminOpen(true); } setShowLoginModal(false); }} onClose={() => setShowLoginModal(false)} />
       )}
       {(userToPass?.email === 'admin@spicehub.com' && isAdminOpen) && (
-        <AdminPanel botStatus={botStatus} setBotStatus={setBotStatus} onLogout={() => { setAdminUser(null); supabase.auth.signOut(); setIsAdminOpen(false); setShowLoginModal(true); }} onCloseAdmin={() => setIsAdminOpen(false)} />
+        <AdminPanel 
+          botStatus={botStatus} 
+          setBotStatus={setBotStatus} 
+          onLogout={() => { 
+            setAdminUser(null); 
+            supabase.auth.signOut(); 
+            setIsAdminOpen(false); 
+            const newurl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+            window.history.pushState({path:newurl},'',newurl);
+            setIsAdminUrl(false);
+            setShowLoginModal(true); 
+          }} 
+          onCloseAdmin={() => {
+            setIsAdminOpen(false);
+            const newurl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+            window.history.pushState({path:newurl},'',newurl);
+            setIsAdminUrl(false);
+          }}
+        />
       )}
     </>
   );

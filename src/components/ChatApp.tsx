@@ -1530,8 +1530,12 @@ ${
             </button>
 
             {/* Admin Portal Button */}
-            <button
-              onClick={() => {
+            <a
+              href="?view=admin"
+              onClick={(e) => {
+                e.preventDefault();
+                const newurl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?view=admin';
+                window.history.pushState({ path: newurl }, '', newurl);
                 if (user?.email === 'admin@spicehub.com') {
                   if (setIsAdminOpen) {
                     setIsAdminOpen(true);
@@ -1542,10 +1546,10 @@ ${
                   }
                 }
               }}
-              className="bg-transparent hover:bg-white/5 text-zinc-300 hover:text-white text-xs font-bold uppercase tracking-wider border border-white/10 px-4 py-2.5 rounded-xl transition-all"
+              className="bg-transparent hover:bg-white/5 text-zinc-300 hover:text-white text-xs font-bold uppercase tracking-wider border border-white/10 px-4 py-2.5 rounded-xl transition-all inline-block text-center cursor-pointer"
             >
               Admin Portal
-            </button>
+            </a>
           </div>
         </div>
       </nav>
