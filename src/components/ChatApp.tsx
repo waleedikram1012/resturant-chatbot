@@ -1892,7 +1892,10 @@ ${
           >
             {/* Security Layer Check */}
             {window.location.host !== "localhost:3000" &&
-            !window.location.host.includes(".run.app") ? (
+            !window.location.host.includes(".run.app") &&
+            !window.location.host.includes(".vercel.app") &&
+            window.location.hostname !== "localhost" &&
+            window.location.hostname !== "127.0.0.1" ? (
               <div className="flex flex-col items-center justify-center p-8 text-center h-full w-full">
                 <AlertCircle size={48} className="text-red-500 mb-4" />
                 <h3 className="text-xl font-bold mb-2">Unauthorized Domain</h3>

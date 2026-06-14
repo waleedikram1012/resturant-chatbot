@@ -47,7 +47,14 @@ export function AuthModal({ onAuthenticated, onClose }: { onAuthenticated: (user
         return;
       }
 
-      let res = await supabase.auth.signUp({ email, password, options: { data: { name } } });
+      let res = await supabase.auth.signUp({ 
+        email, 
+        password, 
+        options: { 
+          data: { name },
+          emailRedirectTo: window.location.origin
+        } 
+      });
       if (res.error) {
         setErrorText(res.error.message);
       } else {

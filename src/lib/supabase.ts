@@ -6,7 +6,20 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "your_supabase
 const isMock = !supabaseUrl || supabaseUrl === "your_supabase_url_here" || !supabaseUrl.startsWith("http");
 
 function createMockSupabase() {
+  let listeners: any[] = [];
   let currentUser: any = null;
+  try {
+    const savedUser = localStorage.getItem("spicehub_mock_user");
+    if (savedUser) {
+      currentUser = JSON.parse(savedUser);
+    }
+  } catch (e) {
+    console.warn("localStorage loading failed", e);
+  }
+
+  const notify = (event: string) => {
+    listeners.forEach(cb => cb(event, currentUser ? { user: currentUser } : null));
+  };
 
   return {
     auth: {
@@ -15,21 +28,62 @@ function createMockSupabase() {
         error: null,
       }),
       onAuthStateChange: (cb: any) => {
+        listeners.push(cb);
         cb("INITIAL_SESSION", currentUser ? { user: currentUser } : null);
-        return { data: { subscription: { unsubscribe: () => {} } } };
+        return { 
+          data: { 
+            subscription: { 
+              unsubscribe: () => {
+                listeners = listeners.filter(l => l !== cb);
+              } 
+            } 
+          } 
+        };
       },
       signInWithPassword: async ({ email, password }: any) => {
         if (!email || !password) return { error: { message: "Invalid credentials" } };
-        currentUser = { id: "mock-id-123", email };
+        
+        // Match specific admin credentials or general accounts
+        if (email === 'admin@spicehub.com' && password === 'admin123') {
+          currentUser = { 
+            id: "admin", 
+            email: "admin@spicehub.com", 
+            role: "admin", 
+            user_metadata: { name: "Admin" } 
+          };
+        } else {
+          currentUser = { 
+            id: `mock-id-${Date.now()}`, 
+            email, 
+            user_metadata: { name: email.split('@')[0] } 
+          };
+        }
+
+        try {
+          localStorage.setItem("spicehub_mock_user", JSON.stringify(currentUser));
+        } catch (e) {}
+        notify("SIGNED_IN");
         return { data: { user: currentUser }, error: null };
       },
       signUp: async ({ email, password }: any) => {
         if (!email || !password) return { error: { message: "Invalid credentials" } };
-        currentUser = { id: "mock-id-123", email };
+        currentUser = { 
+          id: `mock-id-${Date.now()}`, 
+          email, 
+          user_metadata: { name: email.split('@')[0] } 
+        };
+        try {
+          localStorage.setItem("spicehub_mock_user", JSON.stringify(currentUser));
+        } catch (e) {}
+        notify("SIGNED_IN");
         return { data: { user: currentUser }, error: null };
       },
       signOut: async () => {
         currentUser = null;
+        try {
+          localStorage.removeItem("spicehub_mock_user");
+        } catch (e) {}
+        notify("SIGNED_OUT");
         return { error: null };
       },
     },
