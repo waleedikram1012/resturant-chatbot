@@ -1,9 +1,9 @@
-export async function extractIntent(message: string): Promise<any> {
+export async function extractIntent(message: string, systemPrompt?: string, history?: any[]): Promise<any> {
     try {
       const response = await fetch("/api/grok", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message, systemPrompt, history }),
       });
       if (!response.ok) {
         return { intent: "UNKNOWN", error: "Failed to connect to AI server" };

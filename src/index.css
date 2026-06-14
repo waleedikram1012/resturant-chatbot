@@ -12,14 +12,14 @@
 }
 
 :root {
-  --bg-primary: #0c0f17;
-  --bg-secondary: #080a0f;
-  --bg-tertiary: #161b26;
-  --text-primary: #e5e7eb;
+  --bg-primary: #000000;
+  --bg-secondary: #0a0a0a;
+  --bg-tertiary: #141414;
+  --text-primary: #f8fafc;
   --text-secondary: #9ca3af;
-  --accent-red: #ff3e1d;
-  --accent-amber: #ff9f1c;
-  --border-color: #1f2937;
+  --accent-red: #ef4444;
+  --accent-amber: #D4AF37;
+  --border-color: #27272a;
 }
 
 :root[data-theme="light"] {
@@ -28,12 +28,18 @@
   --bg-tertiary: #f1f5f9;
   --text-primary: #0f172a;
   --text-secondary: #475569;
-  --accent-red: #e11d48;
-  --accent-amber: #d97706;
+  --accent-red: #ef4444;
+  --accent-amber: #D4AF37;
   --border-color: #e2e8f0;
 }
 
 body {
   background-color: var(--bg-primary);
   color: var(--text-primary);
+}
+
+*, ::before, ::after {
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 500ms;
 }
