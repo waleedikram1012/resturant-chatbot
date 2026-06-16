@@ -147,6 +147,7 @@ export function ChatApp({
   const [reviewText, setReviewText] = useState("");
   const [cartTick, setCartTick] = useState(0);
   const [isCartDrawerOpen, setIsCartDrawerOpen] = useState(false);
+  const [pendingGuestCheckout, setPendingGuestCheckout] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const showToast = (
     message: string,
@@ -618,22 +619,52 @@ export function ChatApp({
     handleSend(pillText);
   };
 
+  useEffect(() => {
+    if (user?.id && user.id !== "guest" && pendingGuestCheckout) {
+      setPendingGuestCheckout(false);
+      setChatState("ORDERING_NAME");
+      addBotMessage(
+        currentLanguage === "english"
+          ? "Welcome back! To proceed with checkout, please type your Full Name."
+          : "Khush amdeed! Order aage barhane ke liye apna Mukammal Naam type karein."
+      );
+    }
+  }, [user?.id, pendingGuestCheckout]);
+
   const handleSend = async (customText?: string | React.MouseEvent) => {
-    const text = typeof customText === "string" ? customText : input;
-    if (!text.trim()) return;
+    let internalLoadingAdded = false;
+    try {
+      const text = typeof customText === "string" ? customText : input;
+      if (!text.trim()) return;
 
-    setInput("");
-    const userMsgId = crypto.randomUUID();
-    setMessages((prev) => [...prev, { id: userMsgId, role: "user", text }]);
+      setInput("");
+      const userMsgId = crypto.randomUUID();
+      setMessages((prev) => [...prev, { id: userMsgId, role: "user", text }]);
 
-    // Show typing indicator
-    setMessages((prev) => [
-      ...prev,
-      { id: crypto.randomUUID(), role: "assistant", text: "", isLoading: true },
-    ]);
+      // Show typing indicator
+      internalLoadingAdded = true;
+      setMessages((prev) => [
+        ...prev,
+        { id: crypto.randomUUID(), role: "assistant", text: "", isLoading: true },
+      ]);
 
-    // State machine logic
-    const lowerText = text.toLowerCase();
+      // State machine logic
+      const lowerText = text.toLowerCase();
+
+      const getAiHistory = () => {
+      let rawHistory = messages.filter(m => !m.isLoading && !m.isSystem && m.text && m.text.trim().length > 0).slice(-10);
+      let msgHistory: any[] = [];
+      for (const msg of rawHistory) {
+        const role = msg.role === 'user' ? 'user' : 'model';
+        const msgText = msg.text.trim();
+        if (msgHistory.length > 0 && msgHistory[msgHistory.length - 1].role === role) {
+          msgHistory[msgHistory.length - 1].parts[0].text += `\n${msgText}`;
+        } else {
+          msgHistory.push({ role, parts: [{ text: msgText }] });
+        }
+      }
+      return msgHistory;
+    };
 
     if (lowerText.includes("escalate")) {
       addBotMessage(
@@ -790,15 +821,34 @@ ${
           ["Main Menu", "Order Now"],
         );
         setChatState("WELCOME");
-      } else {
-        setChatState("ORDERING_NAME");
+        if (internalLoadingAdded) {
+          setMessages((prev) => prev.filter((m) => !m.isLoading));
+        }
+        return;
+      }
+
+      // Guest barrier: Requires login to checkout
+      if (user?.id === "guest" && onLoginClick) {
+        setPendingGuestCheckout(true);
+        setIsCartDrawerOpen(false);
+        onLoginClick();
+        if (internalLoadingAdded) {
+          setMessages((prev) => prev.filter((m) => !m.isLoading));
+        }
         addBotMessage(
           currentLanguage === "english"
-            ? "To proceed with checkout, please type your Full Name."
-            : "Order aage barhane ke liye apna Mukammal Naam type karein.",
+            ? "Please log in using the popup to complete your checkout!"
+            : "Apna order confirm karne ke liye pehle login karein!",
         );
-        setIsCartDrawerOpen(true);
+        return;
       }
+
+      setChatState("ORDERING_NAME");
+      addBotMessage(
+        currentLanguage === "english"
+          ? "To proceed with checkout, please type your Full Name."
+          : "Order aage barhane ke liye apna Mukammal Naam type karein.",
+      );
       return;
     }
 
@@ -827,19 +877,14 @@ ${
         }
       }
 
+      let aiInputText = text;
+
       if (matchedCategory) {
         const categoryItems = MENU_ITEMS.filter(m => m.category === matchedCategory);
-        const itemListStr = categoryItems.map(m => `${m.name} - Rs.${m.price}`).join("\n");
-        const itemPills = categoryItems.map(m => m.name.replace(/^[^\w\s]+/g, '').trim());
+        const itemListStr = categoryItems.map(m => `${m.name} - Rs.${m.price}`).join(", ");
 
-        addBotMessage(
-          currentLanguage === "english"
-            ? `Here is our ${matchedCategory} menu! What would you like to try?\n\n${itemListStr}`
-            : `Yeh raha hamara ${matchedCategory} menu! Aap kya pasand karenge?\n\n${itemListStr}`,
-          itemPills
-        );
         setChatState("MENU");
-        return;
+        aiInputText = `${text}\n\n[SYSTEM INSTRUCTION: The user wants the ${matchedCategory} category. Respond with "intent": "CONVERSATIONAL" and provide a conversational menu listing these items: ${itemListStr}. Ask what they'd like to try.]`;
       }
 
       // Rule B: Item Match
@@ -848,7 +893,7 @@ ${
 
       let softMatch = MENU_ITEMS.find((m) => m.name.toLowerCase() === lowerText);
 
-      if (!softMatch) {
+      if (!matchedCategory && !softMatch) {
         for (const item of MENU_ITEMS) {
           const cleanItemName = item.name
             .toLowerCase()
@@ -875,32 +920,16 @@ ${
         }
       }
 
-      if (softMatch) {
+      if (!matchedCategory && softMatch) {
         setPendingOrder({ name: softMatch.name, price: softMatch.price });
         setChatState("WAITING_FOR_SIZE");
-        addBotMessage(
-          currentLanguage === "english"
-            ? `Excellent choice! What size would you like for ${softMatch.name}? (Small, Medium, Large)`
-            : `Zabardast! Aapko ${softMatch.name} Small mein chahiye, Medium, ya Large?`,
-        );
-        return;
+        aiInputText = `${text}\n\n[SYSTEM INSTRUCTION: The user wants to order ${softMatch.name}. Respond with "intent": "CONVERSATIONAL" and say "Great choice! What size would you like for ${softMatch.name}?" (Small, Medium, Large)]`;
       }
 
       // NLP parsing via Grok for free text
-      let rawHistory = messages.filter(m => !m.isLoading && !m.isSystem && m.text && m.text.trim().length > 0).slice(-10);
-      let msgHistory: any[] = [];
-      // Ensure strict alternating roles as required by Gemini
-      for (const msg of rawHistory) {
-        const role = msg.role === 'user' ? 'user' : 'model';
-        const text = msg.text.trim();
-        if (msgHistory.length > 0 && msgHistory[msgHistory.length - 1].role === role) {
-          msgHistory[msgHistory.length - 1].parts[0].text += `\n${text}`;
-        } else {
-          msgHistory.push({ role, parts: [{ text }] });
-        }
-      }
+      let msgHistory = getAiHistory();
       
-      const aiRes = await extractIntent(text, activeBotConfig?.prompt, msgHistory);
+      const aiRes = await extractIntent(aiInputText, activeBotConfig?.prompt, msgHistory);
       if (
         aiRes.intent === "ESCALATE" ||
         aiRes.intent === "ESCALATION_TRIGGER" ||
@@ -1071,34 +1100,31 @@ ${
     }
 
     if (chatState === "ORDERING_NAME") {
-      if (text.trim().length < 2) {
+      const msgHistory = getAiHistory();
+      const aiInputText = `${text}\n\n[SYSTEM INSTRUCTION: The user is in the checkout phase. You are currently asking for their Full Name. If the user provided their name (or anything resembling a name), respond with {"intent": "EXTRACTED_DATA", "value": "<the_extracted_name>"}. If they asked a question or the input is invalid, respond with {"intent": "CONVERSATIONAL", "response": "<polite_reply_and_ask_for_name_again>"}.]`;
+      const aiRes = await extractIntent(aiInputText, activeBotConfig?.prompt, msgHistory);
+
+      if (aiRes.intent === "EXTRACTED_DATA" && aiRes.value) {
+        setDeliveryInfo((prev) => ({ ...prev, name: aiRes.value }));
+        setChatState("ORDERING_PHONE");
         addBotMessage(
           currentLanguage === "english"
-            ? "Name is missing or too short. Please provide your full name."
-            : "Naam theek nahi hai. Barahe karam apna pura naam darj karein.",
+            ? "Thank you. Please type your 11-digit mobile number."
+            : "Shukriya. Apna 11-digit mobile number likhein.",
         );
-        return;
+      } else {
+        addBotMessage(aiRes.response || (currentLanguage === "english" ? "Please provide your full name to proceed." : "Apna pura naam likhein."));
       }
-      setDeliveryInfo((prev) => ({ ...prev, name: text.trim() }));
-      setChatState("ORDERING_PHONE");
-      addBotMessage(
-        currentLanguage === "english"
-          ? "Thank you. Please type your 11-digit mobile number."
-          : "Shukriya. Apna 11-digit mobile number likhein.",
-      );
       return;
     }
 
     if (chatState === "ORDERING_PHONE") {
-      const phoneMatch = text.match(
-        /^((\+92)?(0092)?(92)?(0)?)(3[0-9]{2})[0-9]{7}$/,
-      );
+      const phoneMatch = text.match(/^((\+92)?(0092)?(92)?(0)?)(3[0-9]{2})[0-9]{7}$/);
       if (!phoneMatch) {
-        addBotMessage(
-          currentLanguage === "english"
-            ? "Invalid phone format. We require a valid 11-digit Pakistani mobile number."
-            : "Mobile number theek nahi hai. Barahe karam sahi 11-digit Pakistani number likhein.",
-        );
+        const msgHistory = getAiHistory();
+        const aiInputText = `${text}\n\n[SYSTEM INSTRUCTION: The user is in the checkout phase. You are asking for their 11-digit Pakistani mobile number. They provided invalid input. If they asked a question, respond with {"intent": "CONVERSATIONAL", "response": "<polite_reply_and_ask_for_phone>"}. Otherwise just ask for the phone again.]`;
+        const aiRes = await extractIntent(aiInputText, activeBotConfig?.prompt, msgHistory);
+        addBotMessage(aiRes.response || (currentLanguage === "english" ? "Invalid format. We need an 11-digit Pakistani mobile number." : "Barahe karam sahi 11-digit Pakistani number likhein."));
         return;
       }
       setDeliveryInfo((prev) => ({ ...prev, phone: text.trim() }));
@@ -1112,21 +1138,15 @@ ${
     }
 
     if (chatState === "ORDERING_ADDRESS") {
-      if (text.trim().length <= 5) {
-        addBotMessage(
-          currentLanguage === "english"
-            ? "Address is missing or too short. Please provide a complete delivery address."
-            : "Address adhoora hai. Barahe karam mukammal pata faraham karein.",
-        );
-        return;
-      }
-      const isValid = await validateAddress(text);
-      if (!isValid) {
-        addBotMessage(
-          currentLanguage === "english"
-            ? "That address seems invalid. Please provide a complete and correct address."
-            : "Maazrat, yeh address theek nahi lag raha. Apna mukammal aur sahi address type karein.",
-        );
+      const isValidLength = text.trim().length > 5;
+      let isAddressValid = false;
+      if (isValidLength) isAddressValid = await validateAddress(text);
+
+      if (!isValidLength || !isAddressValid) {
+        const msgHistory = getAiHistory();
+        const aiInputText = `${text}\n\n[SYSTEM INSTRUCTION: The user is in the checkout phase. You are asking for their delivery address. The provided address is either too short or invalid. If they asked a question or are having trouble, respond with {"intent": "CONVERSATIONAL", "response": "<polite_reply_and_help_then_ask_for_address>"}. Otherwise, ask for a complete address.]`;
+        const aiRes = await extractIntent(aiInputText, activeBotConfig?.prompt, msgHistory);
+        addBotMessage(aiRes.response || (currentLanguage === "english" ? "Please provide a complete and correct delivery address." : "Mukammal aur sahi address faraham karein."));
         return;
       }
 
@@ -1141,10 +1161,19 @@ ${
     }
 
     if (chatState === "ORDERING_NOTES") {
-      const finalNotes =
-        lowerText === "no" || lowerText === "none" || lowerText === "skip"
-          ? ""
-          : text.trim();
+      const msgHistory = getAiHistory();
+      const aiInputText = `${text}\n\n[SYSTEM INSTRUCTION: The user is in the checkout phase. You are asking for any optional order notes. If they provided notes (or said 'no'/'skip'), respond with {"intent": "EXTRACTED_DATA", "value": "<the_notes_or_empty>"}. If they asked a question instead, respond with {"intent": "CONVERSATIONAL", "response": "<polite_reply_and_ask_for_notes_again>"}.]`;
+      const aiRes = await extractIntent(aiInputText, activeBotConfig?.prompt, msgHistory);
+
+      if (aiRes.intent === "CONVERSATIONAL") {
+        addBotMessage(aiRes.response || (currentLanguage === "english" ? "Please let me know if you have any notes, or type 'no' to finish." : "Koi order notes hain? Agar nahi to 'No' likhein."));
+        return;
+      }
+
+      let finalNotes = aiRes.value || "";
+      if (lowerText === "no" || lowerText === "none" || lowerText === "skip" || finalNotes.toLowerCase() === "no" || finalNotes.toLowerCase() === "none" || finalNotes.toLowerCase() === "skip") {
+        finalNotes = "";
+      }
       setDeliveryInfo((prev) => ({ ...prev, notes: finalNotes }));
 
       const trackingId = "SPH" + Math.floor(1000 + Math.random() * 9000);
@@ -1360,6 +1389,22 @@ ${
       );
       setChatState("GENERAL");
       return;
+    }
+
+    } catch (err: any) {
+      console.error("[handleSend] Error:", err);
+      if (internalLoadingAdded) {
+        setMessages((prev) => [
+          ...prev.filter((m) => !m.isLoading),
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            text: currentLanguage === "english" 
+                    ? "Sorry, I am having trouble processing your request right now. Let's try again." 
+                    : "Maazrat, is waqt mujhe aapki request process karne mein dushwari ho rahi hai. Dobara koshish karein.",
+          },
+        ]);
+      }
     }
   };
 
@@ -2100,7 +2145,7 @@ ${
                     <input 
                       type="text" 
                       name="name"
-                      placeholder="John Doe" 
+                      placeholder="Enter your full name" 
                       required
                       className="w-full bg-zinc-950/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all placeholder:text-zinc-600" 
                     />
@@ -2110,7 +2155,7 @@ ${
                     <input 
                       type="email" 
                       name="email"
-                      placeholder="john@example.com" 
+                      placeholder="Enter your email address" 
                       required
                       className="w-full bg-zinc-950/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all placeholder:text-zinc-600" 
                     />
@@ -2295,7 +2340,7 @@ ${
                       onChange={(e) =>
                         setPreChatForm((p) => ({ ...p, name: e.target.value }))
                       }
-                      placeholder="Full Name"
+                      placeholder="Enter your full name"
                       className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                     />
                   </div>
@@ -2309,7 +2354,7 @@ ${
                       onChange={(e) =>
                         setPreChatForm((p) => ({ ...p, email: e.target.value }))
                       }
-                      placeholder="ali@gmail.com"
+                      placeholder="Enter your email address"
                       className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                     />
                   </div>
@@ -2542,9 +2587,11 @@ ${
                       <button
                         onClick={() => {
                           setIsWidgetOpen(false);
-                          document.getElementById('main-focus-element')?.focus() || document.body.focus();
+                          const el = document.getElementById('main-focus-element');
+                          if (el) el.focus();
+                          else document.body.focus();
                         }}
-                        style={{ position: 'absolute', right: '1rem', top: '1rem' }}
+                        style={{ display: isCartDrawerOpen ? 'none' : 'block', position: 'absolute', right: '1rem', top: '1rem' }}
                         className="opacity-20 hover:opacity-100 bg-black/60 hover:bg-red-500/90 text-zinc-300 hover:text-white p-2 rounded-full transition-all group focus:outline-none focus:opacity-100 z-[9999]"
                         title="Close Chatbot"
                       >

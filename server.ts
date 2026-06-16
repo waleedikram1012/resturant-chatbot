@@ -69,7 +69,7 @@ async function startServer() {
       while (retries > 0) {
         try {
           response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-2.0-flash',
             contents: cleanHistory,
             config: {
               systemInstruction: finalInstruction,
@@ -115,7 +115,7 @@ async function startServer() {
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-2.0-flash',
         contents: address,
         config: {
           systemInstruction: "You are a validation bot. The user typed an address. Is this a realistic physical delivery address? Reply with exactly 'VALID' or 'INVALID'."

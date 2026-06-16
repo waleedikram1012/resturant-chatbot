@@ -59,7 +59,7 @@ export function AdminLoginUI({ onAuthenticated }: { onAuthenticated: (user?: any
                 <label className="text-sm font-semibold text-zinc-400">Username / Email</label>
                 <input 
                   type="email" 
-                  placeholder="admin@spicehub.com"
+                  placeholder="Enter administrator email"
                   className="w-full bg-zinc-950/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all placeholder:text-zinc-600"
                   value={email}
                   onChange={e => setEmail(e.target.value)}
@@ -70,7 +70,7 @@ export function AdminLoginUI({ onAuthenticated }: { onAuthenticated: (user?: any
                 <label className="text-sm font-semibold text-zinc-400">Password</label>
                 <input 
                   type={showPassword ? "text" : "password"}
-                  placeholder="••••••••"
+                  placeholder="Enter administrator password"
                   className="w-full bg-zinc-950/50 border border-white/10 rounded-xl px-4 py-3 pr-12 text-white focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all placeholder:text-zinc-600"
                   value={password}
                   onChange={e => setPassword(e.target.value)}
