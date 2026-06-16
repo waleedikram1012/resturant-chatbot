@@ -38,17 +38,58 @@ async function startServer() {
       CRITICAL RULE 7: If the user expresses intense frustration, anger, or complaints using phrases like "farigh bot", "worst service", "call manager", "gussa", "bakwaas", or is stuck in persistent loops, YOU MUST output:
       { "intent": "ESCALATION_TRIGGER", "response": "Mujhe afsos hai ke aapko pareshani hui. Please click the button below to connect with our live manager." }`;
 
-      const chat = ai.chats.create({
-        model: 'gemini-2.5-flash',
-        history: history || [],
-        config: {
-          systemInstruction: finalInstruction,
-          responseMimeType: 'application/json'
+      let cleanHistory: any[] = [];
+      if (Array.isArray(history)) {
+        for (const msg of history) {
+          if (msg && msg.role && Array.isArray(msg.parts) && msg.parts.length > 0 && msg.parts[0].text) {
+            const role = msg.role === 'user' ? 'user' : 'model';
+            const text = String(msg.parts[0].text).slice(0, 1000);
+            if (cleanHistory.length > 0 && cleanHistory[cleanHistory.length - 1].role === role) {
+               cleanHistory[cleanHistory.length - 1].parts[0].text += `\n${text}`;
+            } else {
+               cleanHistory.push({ role, parts: [{ text }] });
+            }
+          }
         }
-      });
+      }
 
-      const response = await chat.sendMessage(message);
-      let content = response.text || "{}";
+      const finalMessage = String(message).slice(0, 2000);
+      if (cleanHistory.length > 0 && cleanHistory[cleanHistory.length - 1].role === 'user') {
+          cleanHistory[cleanHistory.length - 1].parts[0].text += `\n${finalMessage}`;
+      } else {
+          cleanHistory.push({ role: 'user', parts: [{ text: finalMessage }] });
+      }
+
+      if (cleanHistory.length > 0 && cleanHistory[0].role === 'model') {
+          cleanHistory.shift();
+      }
+
+      let response;
+      let retries = 3;
+      while (retries > 0) {
+        try {
+          response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: cleanHistory,
+            config: {
+              systemInstruction: finalInstruction,
+              responseMimeType: 'application/json'
+            }
+          });
+          break; // success
+        } catch (e: any) {
+          const msgStr = e.message || "";
+          if (msgStr.includes('503') || msgStr.includes('429') || msgStr.includes('UNAVAILABLE') || msgStr.includes('high demand')) {
+             retries--;
+             if (retries === 0) throw e;
+             await new Promise(r => setTimeout(r, 1500)); // wait before retry
+          } else {
+             throw e;
+          }
+        }
+      }
+
+      let content = response?.text || "{}";
       try {
         // Strip markdown code block if present
         if (content.startsWith('```json')) {
@@ -60,11 +101,11 @@ async function startServer() {
         res.json(parsed);
       } catch (e) {
         // Fallback to exactly what the AI returned, wrapping it in CONVERSATIONAL
-        res.json({ intent: "CONVERSATIONAL", response: response.text || "I'm sorry, I couldn't process that properly." });
+        res.json({ intent: "CONVERSATIONAL", response: response?.text || "I'm sorry, I couldn't process that properly." });
       }
     } catch (error: any) {
       console.warn("GenAI Proxy Warning (Extraction):", error.message);
-      res.json({ intent: "CONVERSATIONAL", response: "Oops, an error occurred communicating with the intelligence core." });
+      res.json({ intent: "CONVERSATIONAL", response: "Service is temporarily busy. Please try again in a few moments." });
     }
   });
 

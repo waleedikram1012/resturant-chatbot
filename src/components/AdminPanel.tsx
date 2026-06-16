@@ -14,7 +14,7 @@ const ORDER_TRENDS_DATA = [
 ];
 
 export function AdminPanel({ botStatus, setBotStatus, onLogout, onCloseAdmin }: any) {
-  const [activeTab, setActiveTab] = useState<'Chatbots' | 'Inbox' | 'Orders' | 'Analytics' | 'Team' | 'Settings'>('Chatbots');
+  const [activeTab, setActiveTab] = useState<'Chatbots' | 'Inbox' | 'Orders' | 'Analytics' | 'Team' | 'Inventory' | 'Settings'>('Chatbots');
   const [timeRange, setTimeRange] = useState('Today');
 
   const getFilteredTrendsData = () => {
@@ -89,6 +89,21 @@ export function AdminPanel({ botStatus, setBotStatus, onLogout, onCloseAdmin }: 
   
   // Simulate active profile state for role locking
   const [currentUserRole, setCurrentUserRole] = useState<'OWNER' | 'AGENT'>('OWNER');
+
+  const [inventoryItems, setInventoryItems] = useState([
+    { id: 1, name: "🍔 Zinger Burger", stock: 120, threshold: 20 },
+    { id: 2, name: "🍔 Cheese Blast", stock: 15, threshold: 30 },
+    { id: 3, name: "🍔 Grilled Jalapeno", stock: 45, threshold: 20 },
+    { id: 4, name: "🍔 Monster Burger", stock: 5, threshold: 10 },
+    { id: 5, name: "🍕 Chicken Tikka S", stock: 80, threshold: 15 },
+    { id: 6, name: "🍕 Chicken Tikka L", stock: 65, threshold: 15 },
+    { id: 7, name: "🍕 Creamy BBQ S", stock: 8, threshold: 12 },
+    { id: 8, name: "🍕 Creamy BBQ L", stock: 18, threshold: 15 },
+    { id: 9, name: "🍲 Chicken Dum Biryani", stock: 40, threshold: 10 },
+    { id: 10, name: "🍲 Special Mutton Biryani", stock: 2, threshold: 5 },
+    { id: 11, name: "🍹 Cold Drink 350ml", stock: 250, threshold: 50 },
+    { id: 12, name: "💧 Mineral Water", stock: 3, threshold: 20 },
+  ]);
 
   useEffect(() => {
     const fetchOrders = async () => {
@@ -210,27 +225,50 @@ export function AdminPanel({ botStatus, setBotStatus, onLogout, onCloseAdmin }: 
        alert("No orders data available to export yet.");
        return;
     }
-    const headers = 'Order ID,Customer Name,Mobile Number,Item Summary,Total Price,Timestamp\n';
-    let csvContent = "data:text/csv;charset=utf-8," + headers;
+    const headers = 'Order ID,Customer Name,Mobile Number,Item Summary,Complete Order Payload,Delivery Schemas,User Metadata,Total Price,Timestamp\n';
+    let csvContent = headers;
 
     ordersData.forEach(o => {
       if (!o || !o.id) return;
+      
+      const safeStringify = (obj: any) => {
+        try {
+          return obj ? JSON.stringify(obj).replace(/"/g, '""') : '""';
+        } catch {
+          return '""';
+        }
+      };
+      
+      const payloadStr = safeStringify(o);
+      const metadataStr = safeStringify({ user_id: o.user_id, platform: "web", role: "customer" });
+      const deliveryStr = safeStringify({ address: o.address, type: "delivery" });
+
       const row = [
         `"${o.id}"`,
         `"Customer_${o.user_id?.substring(0, 5) || 'Guest'}"`,
         `"N/A"`,
         `"${(o.details || '').replace(/"/g, '""')}"`,
+        `"${payloadStr}"`,
+        `"${deliveryStr}"`,
+        `"${metadataStr}"`,
         o.total || 0,
         `"${new Date(o.created_at).toLocaleString()}"`
       ].join(',');
       csvContent += row + "\n";
     });
 
-    const encodedUri = encodeURIComponent(csvContent);
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    
     const a = document.createElement('a');
-    a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csvContent.replace("data:text/csv;charset=utf-8,", ""));
-    a.download = 'spicehub_orders_report_2026.csv';
+    a.href = url;
+    a.setAttribute('download', 'spicehub_orders_report_2026.csv');
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
+    
+    // Revoke the Object URL to free up memory
+    setTimeout(() => URL.revokeObjectURL(url), 100);
   };
 
   const downloadInboxCSV = () => {
@@ -308,6 +346,9 @@ export function AdminPanel({ botStatus, setBotStatus, onLogout, onCloseAdmin }: 
           </button>
           <button onClick={() => setActiveTab('Team')} className={`flex items-center gap-3 transition-colors p-3 rounded-xl font-bold ${activeTab === 'Team' ? 'bg-primary/20 text-primary border border-primary/20' : 'text-zinc-400 hover:text-white hover:bg-white/5'}`}>
             <Users size={18} /> Team Roles
+          </button>
+          <button onClick={() => setActiveTab('Inventory')} className={`flex items-center gap-3 transition-colors p-3 rounded-xl font-bold ${activeTab === 'Inventory' ? 'bg-primary/20 text-primary border border-primary/20' : 'text-zinc-400 hover:text-white hover:bg-white/5'}`}>
+            <ClipboardList size={18} /> Inventory
           </button>
           
           <div className="mt-auto pt-6 border-t border-white/10 flex flex-col gap-4">
@@ -390,6 +431,7 @@ export function AdminPanel({ botStatus, setBotStatus, onLogout, onCloseAdmin }: 
                {activeTab === 'Orders' && <><ClipboardList size={20} className="text-primary"/> Orders Exporter</>}
                {activeTab === 'Analytics' && <><BarChart3 size={20} className="text-primary"/> Extended Analytics</>}
                {activeTab === 'Team' && <><Users size={20} className="text-primary"/> Role-Based Team</>}
+               {activeTab === 'Inventory' && <><ClipboardList size={20} className="text-primary"/> Inventory Tracker</>}
             </h1>
             <div className="flex items-center gap-4">
                {currentUserRole === 'AGENT' && (
@@ -984,6 +1026,53 @@ export function AdminPanel({ botStatus, setBotStatus, onLogout, onCloseAdmin }: 
                </div>
             )}
 
+            {/* INVENTORY TRACKING TAB */}
+            {activeTab === 'Inventory' && (
+               <div className="max-w-5xl space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                  <div className="flex justify-between items-center bg-zinc-900/50 p-6 rounded-2xl border border-white/5">
+                     <div>
+                        <h2 className="text-lg font-bold text-white mb-1">Live Inventory Dashboard</h2>
+                        <p className="text-zinc-400 text-sm">Monitor stock levels. Low stock items (below threshold) are highlighted in red.</p>
+                     </div>
+                  </div>
+                  
+                  <div className="bg-zinc-900/50 rounded-2xl border border-white/5 overflow-hidden">
+                     <table className="w-full text-left text-sm">
+                        <thead className="bg-black/40 border-b border-white/5 uppercase tracking-wider text-xs text-zinc-500">
+                           <tr>
+                              <th className="p-4 font-bold">Item Name</th>
+                              <th className="p-4 font-bold">Current Stock</th>
+                              <th className="p-4 font-bold">Threshold</th>
+                              <th className="p-4 font-bold">Status</th>
+                           </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                           {inventoryItems.map(item => {
+                              const isLowStock = item.stock < item.threshold;
+                              return (
+                                 <tr key={item.id} className={`transition-colors ${isLowStock ? 'bg-red-500/10 hover:bg-red-500/20' : 'hover:bg-white/5'}`}>
+                                    <td className="p-4 font-medium text-white">{item.name}</td>
+                                    <td className={`p-4 font-bold ${isLowStock ? 'text-red-500' : 'text-zinc-300'}`}>{item.stock} units</td>
+                                    <td className="p-4 text-zinc-500">{item.threshold} units</td>
+                                    <td className="p-4">
+                                       {isLowStock ? (
+                                          <span className="bg-red-500/20 text-red-500 flex items-center gap-1.5 px-3 py-1 items-center justify-center rounded-full text-xs font-bold border border-red-500/30 w-max">
+                                             <AlertCircle size={14} /> Low Stock!
+                                          </span>
+                                       ) : (
+                                          <span className="bg-green-500/10 text-green-500 flex items-center gap-1.5 px-3 py-1 items-center justify-center rounded-full text-xs font-bold border border-green-500/20 w-max">
+                                             <CheckCircle size={14} /> In Stock
+                                          </span>
+                                       )}
+                                    </td>
+                                 </tr>
+                              );
+                           })}
+                        </tbody>
+                     </table>
+                  </div>
+               </div>
+            )}
          </main>
       </div>
 

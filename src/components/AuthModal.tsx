@@ -184,7 +184,6 @@ export function AuthModal({ onAuthenticated, onClose }: { onAuthenticated: (user
 
           {errorText && (
              <div className="flex items-start rounded-lg bg-red-500/10 p-3 text-sm text-red-500 mb-4">
-               <AlertCircle size={16} className="mr-2 mt-0.5 shrink-0" />
                <p>{errorText}</p>
              </div>
           )}

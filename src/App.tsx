@@ -3,6 +3,7 @@ import { supabase } from './lib/supabase';
 import { AuthModal } from './components/AuthModal';
 import { ChatApp } from './components/ChatApp';
 import { AdminPanel } from './components/AdminPanel';
+import { AdminLoginUI } from './components/AdminLoginUI';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -23,6 +24,9 @@ export default function App() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
+      if (session?.user?.user_metadata?.theme) {
+        setTheme(session.user.user_metadata.theme);
+      }
       setLoading(false);
     });
 
@@ -30,6 +34,9 @@ export default function App() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      if (session?.user?.user_metadata?.theme) {
+        setTheme(session.user.user_metadata.theme);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -66,7 +73,15 @@ export default function App() {
     localStorage.setItem('spicehub_theme', theme);
   }, [theme]);
 
-  const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  const toggleTheme = async () => {
+    const newTheme = theme === 'dark' ? 'light' : 'dark';
+    setTheme(newTheme);
+    if (session?.user) {
+      await supabase.auth.updateUser({
+        data: { theme: newTheme }
+      });
+    }
+  };
 
   if (loading) {
     return (
@@ -100,44 +115,16 @@ export default function App() {
   // Fully forced bypass for URL query routing parameters if user is not authorized as Admin Owner yet:
   if (isAdminUrl && userToPass?.email !== 'admin@spicehub.com') {
     return (
-      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#0d0e12] text-white">
-        {/* Decorative ambient spots */}
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900/60 via-[#0d0e12] to-black opacity-90" />
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff03_1px,transparent_1px),linear-gradient(to_bottom,#ffffff03_1px,transparent_1px)] bg-[size:32px_32px]" />
-        
-        {/* Brand label above center form */}
-        <div className="relative z-[60] mb-6">
-          <div className="flex h-20 w-20 items-center justify-center rounded-[2rem] bg-gradient-to-tr from-primary to-orange-400 text-[#0d0e12] shadow-2xl shadow-primary/30 rotate-6 hover:rotate-0 transition-transform cursor-pointer">
-             <span className="text-3xl font-black italic tracking-tighter">SH</span>
-          </div>
-        </div>
-
-        <div className="relative z-50 w-full max-w-sm px-4">
-          <AuthModal 
-            onAuthenticated={(u) => { 
-                if (u) { 
-                  setAdminUser(u); 
-                  if (u.email === 'admin@spicehub.com') {
-                    setIsAdminOpen(true); 
-                  }
-                } 
-            }} 
-          />
-        </div>
-        
-        {/* Navigation back helper */}
-        <button 
-          onClick={() => {
-            const newurl = window.location.protocol + "//" + window.location.host + window.location.pathname;
-            window.history.pushState({path:newurl},'',newurl);
-            setIsAdminUrl(false);
-            setIsAdminOpen(false);
-          }}
-          className="relative z-50 mt-8 text-xs font-bold uppercase tracking-widest text-zinc-400 hover:text-white transition-colors border border-white/5 bg-zinc-900/60 hover:bg-zinc-800/80 px-6 py-3 rounded-full backdrop-blur-md cursor-pointer flex items-center gap-2 shadow-lg hover:border-white/10"
-        >
-          ← Go Back to Landing Page
-        </button>
-      </div>
+      <AdminLoginUI 
+        onAuthenticated={(u) => { 
+          if (u) { 
+            setAdminUser(u); 
+            if (u.email === 'admin@spicehub.com') {
+              setIsAdminOpen(true); 
+            }
+          } 
+        }} 
+      />
     );
   }
 

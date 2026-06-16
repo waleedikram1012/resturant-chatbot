@@ -12,6 +12,10 @@ import {
   Sparkles,
   AlertCircle,
   ShoppingBag,
+  Facebook,
+  Youtube,
+  Twitter,
+  Instagram,
   CalendarClock,
   Package,
   Headphones,
@@ -29,6 +33,8 @@ import {
   Monitor,
   Smartphone,
   X,
+  RefreshCw,
+  Flame,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { extractIntent, validateAddress } from "../lib/grok";
@@ -58,6 +64,43 @@ const getInitialMessage = (): Message => ({
 let orderCart: any[] = [];
 let recentConversations: string[] = [];
 
+const MENU_ITEMS = [
+  { name: "🍗 Chicken Tikka Boti", price: 650, category: "BBQ & Grill" },
+  { name: "🍖 Beef Seekh Kebab", price: 800, category: "BBQ & Grill" },
+  { name: "🍢 Malai Boti", price: 750, category: "BBQ & Grill" },
+  { name: "🔥 Mutton Chops Grill", price: 1500, category: "BBQ & Grill" },
+  
+  { name: "🥘 Chicken Karahi (Half)", price: 1200, category: "Karahi & Handi" },
+  { name: "🥘 Mutton Karahi (Full)", price: 3500, category: "Karahi & Handi" },
+  { name: "🍛 Chicken Makhni Handi", price: 1400, category: "Karahi & Handi" },
+  { name: "♨️ Paneer Reshmi Handi", price: 1100, category: "Karahi & Handi" },
+  
+  { name: "🍛 Chicken Dum Biryani", price: 450, category: "Biryani & Rice" },
+  { name: "🍲 Special Mutton Biryani", price: 750, category: "Biryani & Rice" },
+  { name: "🍚 Beef Pulao", price: 600, category: "Biryani & Rice" },
+  { name: "🥘 Kabuli Pulao", price: 800, category: "Biryani & Rice" },
+  
+  { name: "🥣 Nihari with Nalli", price: 900, category: "Traditional Curries" },
+  { name: "🍲 Haleem Special", price: 650, category: "Traditional Curries" },
+  { name: "🍛 Paya Special", price: 1100, category: "Traditional Curries" },
+  { name: "🥘 Maghaz Karahi", price: 1200, category: "Traditional Curries" },
+
+  { name: "🍔 Zinger Burger", price: 450, category: "Fast Food" },
+  { name: "🍕 Chicken Tikka Pizza", price: 1200, category: "Fast Food" },
+  { name: "🌯 Chicken Roti Roll", price: 350, category: "Fast Food" },
+  { name: "🍟 Loaded Fries", price: 400, category: "Fast Food" },
+
+  { name: "🍨 Kheer Special", price: 250, category: "Desserts & Sweets" },
+  { name: "🍧 Gulab Jamun (4 pcs)", price: 200, category: "Desserts & Sweets" },
+  { name: "🍮 Rabri Falooda", price: 350, category: "Desserts & Sweets" },
+  { name: "🍰 Gajar Ka Halwa", price: 300, category: "Desserts & Sweets" },
+
+  { name: "🍹 Mango Lassi", price: 250, category: "Beverages" },
+  { name: "☕ Karak Chai", price: 100, category: "Beverages" },
+  { name: "🥤 Rooh Afza Sharbat", price: 150, category: "Beverages" },
+  { name: "💧 Mineral Water (Small)", price: 80, category: "Beverages" }
+];
+
 export function ChatApp({
   user,
   onLogout,
@@ -77,7 +120,7 @@ export function ChatApp({
   isAdminOpen?: boolean;
   setIsAdminOpen?: (open: boolean) => void;
 }) {
-  const currentLanguage = "roman_urdu";
+  const currentLanguage: string = "roman_urdu";
   const [messages, setMessages] = useState<Message[]>(() => {
     const saved = localStorage.getItem("spicehub_chat_messages");
     return saved ? JSON.parse(saved) : [getInitialMessage()];
@@ -188,6 +231,7 @@ export function ChatApp({
   const [chatState, setChatState] = useState<
     | "WELCOME"
     | "MENU"
+    | "WAITING_FOR_SIZE"
     | "WAITING_FOR_QUANTITY"
     | "ORDERING_NAME"
     | "ORDERING_PHONE"
@@ -229,6 +273,18 @@ export function ChatApp({
   const [menuSearchQuery, setMenuSearchQuery] = useState("");
   const [activeCategoryFilter, setActiveCategoryFilter] = useState("All");
   const [landingPageCategory, setLandingPageCategory] = useState("All");
+  const [isLoadingMenu, setIsLoadingMenu] = useState(true);
+
+  useEffect(() => {
+    setIsLoadingMenu(true);
+    const timer = setTimeout(() => {
+      setIsLoadingMenu(false);
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [landingPageCategory]);
+
+  const [contactForm, setContactForm] = useState({ name: "", email: "", message: "" });
+  const [contactFormStatus, setContactFormStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
   const [itemFrequencies, setItemFrequencies] = useState<Record<string, number>>({});
   const [preChatForm, setPreChatForm] = useState(() => {
     const saved = localStorage.getItem("spicehub_prechat");
@@ -246,37 +302,45 @@ export function ChatApp({
   if (typeof sessionId.current === "function") {
     sessionId.current = (sessionId.current as any)();
   }
-  const [viewMode, setViewMode] = useState<"PC" | "MOBILE">("PC");
+  const [viewMode, setViewMode] = useState<"PC" | "MOBILE">("MOBILE");
   const [showShortcuts, setShowShortcuts] = useState(false);
 
   const [pullDistance, setPullDistance] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const touchStartY = useRef(0);
   const [checkoutComplete, setCheckoutComplete] = useState<string | null>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [flyingCartItems, setFlyingCartItems] = useState<{id: string, startX: number, startY: number, emoji: string}[]>([]);
   const [activeBotConfig, setActiveBotConfig] = useState<any>(null);
 
   useEffect(() => {
     try {
       const activeId = localStorage.getItem("spicehub_live_bot_id");
       const savedBots = localStorage.getItem("spicehub_chatbots");
+      const menuString = MENU_ITEMS.map(item => `'${item.name}' (${item.price})`).join(", ");
       const defaultBot = { id: 'sh-1', name: 'SpiceHub AI', desc: 'Main ordering bot', prompt: `You are an expert restaurant concierge for SpiceHub. You must converse 100% in natural, friendly humanized Roman Urdu. Never switch to formal English paragraphs.
-          Menu items: 'Zinger Burger' (450), 'Cheese Blast Burger' (550), 'Grilled Jalapeno Burger' (520), 'Double Decker Monster Burger' (750), 'Chicken Tikka Pizza' (S: 600, L: 1300), 'Creamy BBQ Pizza' (S: 650, L: 1400), 'Chicken Dum Biryani' (380), 'Mutton Biryani' (650), 'Mineral Water' (80), 'Chilled Mint Margarita' (200), 'Cold Drink' (100).
+          Here is our FULL MENU, always use these exact items and prices:
+          ${menuString}
           
-          Rule 1: If the user mentions an item without volume or variation, ask a follow-up question in Roman Urdu (e.g., normal ya chilled thanda? Small lagaoon ya Large?).
+          Rule 1: If the user mentions an item without volume or variation, DO NOT say "item not available". ALWAYS output exactly:
+          { "intent": "SINGLE_ORDER_ITEM", "item": "<Matched Item Name>", "subtotal": <Base Price> }
+          Note: The system will automatically ask the user for Size and Quantity when you output SINGLE_ORDER_ITEM without quantity.
           
           Rule 2: If the user confirms specific items with quantities, extract them into the cart array:
           { "intent": "MULTI_ORDER_ITEM", "items": [{ "quantity": 2, "item": "Zinger Burger", "subtotal": 900 }], "response": "Maine aapke items cart me add kar diye hain. Aur kuch chahiye aapko?" }
 
-          Rule 3: If an item is missing from the menu, output:
+          Rule 3: Intelligently match informal or partial item names (e.g., "Burger" -> "Zinger Burger", "Biryani" -> "Chicken Dum Biryani"). Pick the most popular match instead of failing. NEVER fail with ITEM_NOT_FOUND if the category exists.
+          
+          Rule 4: If an item is completely unrelated and absolutely not on the menu at all (e.g., "Laptop", "Sushi"), output:
           { "intent": "ITEM_NOT_FOUND" }
           
-          Rule 4: If the user indicates they are done ordering, output:
+          Rule 5: If the user indicates they are done ordering, output:
           { "intent": "CHECKOUT_READY", "response": "Zabardast! Chaliye checkout ki taraf chalte hain." }
           
-          Rule 5: For general food questions or conversational input, respond naturally:
+          Rule 6: For general food questions or conversational input, respond naturally:
           { "intent": "CONVERSATIONAL", "response": "Zaroor, humare chefs aapke taste ke hisaab se best cheez bana sakte hain. Aapko tikka pasand hai ya creamy?" }
           
-          Rule 6: For out-of-context topics like programming, output { "intent": "GUARDRAIL_BLOCKED" }.` };
+          Rule 7: For out-of-context topics like programming, output { "intent": "GUARDRAIL_BLOCKED" }.` };
 
       let foundBot = defaultBot;
       if (savedBots) {
@@ -371,13 +435,7 @@ export function ChatApp({
         e.preventDefault();
         setShowShortcuts(true);
       }
-      if (e.key === "Escape" || e.key === "Backspace") {
-        if (
-          e.key === "Backspace" &&
-          (e.target instanceof HTMLInputElement ||
-            e.target instanceof HTMLTextAreaElement)
-        )
-          return;
+      if (e.key === "Escape") {
         setShowShortcuts(false);
         setIsCartDrawerOpen(false);
         setShowSettings(false);
@@ -505,41 +563,7 @@ export function ChatApp({
       .subscribe();
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Backspace") {
-        const active = document.activeElement as HTMLElement;
-        if (
-          active &&
-          (active.tagName === "INPUT" ||
-            active.tagName === "TEXTAREA" ||
-            active.isContentEditable)
-        ) {
-          return;
-        }
-        if (showSettings) {
-          setShowSettings(false);
-          return;
-        }
-        if (showOrderHistory) {
-          setShowOrderHistory(false);
-          return;
-        }
-        if (successPopup) {
-          setSuccessPopup(null);
-          return;
-        }
-        if (reviewPopup) {
-          setReviewPopup(null);
-          return;
-        }
-        if (isCartDrawerOpen) {
-          setIsCartDrawerOpen(false);
-          return;
-        }
-        if (selectedProduct) {
-          setSelectedProduct(null);
-          return;
-        }
-      }
+      // Intentionally left blank or can be removed completely.
     };
     document.addEventListener("keydown", handleKeyDown);
 
@@ -557,21 +581,6 @@ export function ChatApp({
     isCartDrawerOpen,
     selectedProduct,
   ]);
-
-  const MENU_ITEMS = [
-    { name: "🍔 Zinger Burger", price: 450, category: "Burgers" },
-    { name: "🍔 Cheese Blast", price: 550, category: "Burgers" },
-    { name: "🍔 Grilled Jalapeno", price: 520, category: "Burgers" },
-    { name: "🍔 Monster Burger", price: 750, category: "Burgers" },
-    { name: "🍕 Chicken Tikka S", price: 600, category: "Pizza" },
-    { name: "🍕 Chicken Tikka L", price: 1300, category: "Pizza" },
-    { name: "🍕 Creamy BBQ S", price: 650, category: "Pizza" },
-    { name: "🍕 Creamy BBQ L", price: 1400, category: "Pizza" },
-    { name: "🍲 Chicken Dum Biryani", price: 380, category: "Biryani" },
-    { name: "🍲 Special Mutton Biryani", price: 600, category: "Biryani" },
-    { name: "🍹 Cold Drink 350ml", price: 120, category: "Drinks" },
-    { name: "💧 Mineral Water", price: 80, category: "Drinks" },
-  ];
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -691,8 +700,8 @@ ${
       setChatState("TRACK_ORDER_ID");
       addBotMessage(
         currentLanguage === "english"
-          ? "Please enter your Order Tracking ID (e.g., SPH1234) to view your progression:"
-          : "Apna Order Tracking ID darj karein (jese SPH1234):",
+          ? "Please enter your Order Tracking ID to view your progression:"
+          : "Apna Order Tracking ID darj karein:",
       );
       return;
     }
@@ -785,8 +794,8 @@ ${
         setChatState("ORDERING_NAME");
         addBotMessage(
           currentLanguage === "english"
-            ? "To proceed with checkout, please type your Full Name (e.g. Ali Khan)."
-            : "Order aage barhane ke liye apna Mukammal Naam type karein (misal ke taur par, Ali Khan).",
+            ? "To proceed with checkout, please type your Full Name."
+            : "Order aage barhane ke liye apna Mukammal Naam type karein.",
         );
         setIsCartDrawerOpen(true);
       }
@@ -798,63 +807,99 @@ ${
       chatState === "WELCOME" ||
       chatState === "GENERAL"
     ) {
-      // Category matching
-      if (lowerText === "burgers" || lowerText === "burger") {
-        addBotMessage(
-          "🍔 Zinger Burger - Rs. 450\n🍔 Cheese Blast - Rs. 550\n🍔 Grilled Jalapeno - Rs. 520\n🍔 Monster Burger - Rs. 750",
-          [
-            "Zinger Burger",
-            "Cheese Blast",
-            "Grilled Jalapeno",
-            "Monster Burger",
-          ],
-        );
-        return;
+      // 2. HARDCODED KEYWORD ROUTER (BEFORE AI PROCESSING)
+      // Rule A: Category Match
+      const categoryMap = [
+        { keys: ["dessert", "desserts", "sweet", "sweets", "meetha", "ice cream"], category: "Desserts & Sweets" },
+        { keys: ["drink", "drinks", "beverage", "beverages", "water", "paani", "cold drink"], category: "Beverages" },
+        { keys: ["burger", "burgers", "pizza", "fast food", "fries", "roll"], category: "Fast Food" },
+        { keys: ["bbq", "grill", "tikka", "kebab", "boti", "seekh"], category: "BBQ & Grill" },
+        { keys: ["karahi", "handi", "makhni"], category: "Karahi & Handi" },
+        { keys: ["biryani", "rice", "pulao", "chawal"], category: "Biryani & Rice" },
+        { keys: ["curry", "curries", "traditional", "nihari", "haleem", "paya", "maghaz"], category: "Traditional Curries" }
+      ];
+
+      let matchedCategory = null;
+      for (const map of categoryMap) {
+        if (map.keys.some(k => lowerText.includes(k))) {
+          matchedCategory = map.category;
+          break;
+        }
       }
-      if (lowerText === "pizza") {
+
+      if (matchedCategory) {
+        const categoryItems = MENU_ITEMS.filter(m => m.category === matchedCategory);
+        const itemListStr = categoryItems.map(m => `${m.name} - Rs.${m.price}`).join("\n");
+        const itemPills = categoryItems.map(m => m.name.replace(/^[^\w\s]+/g, '').trim());
+
         addBotMessage(
-          "🍕 Chicken Tikka S (Rs. 600) / L (Rs. 1300)\n🍕 Creamy BBQ S (Rs. 650) / L (Rs. 1400)",
-          [
-            "Chicken Tikka S",
-            "Chicken Tikka L",
-            "Creamy BBQ S",
-            "Creamy BBQ L",
-          ],
+          currentLanguage === "english"
+            ? `Here is our ${matchedCategory} menu! What would you like to try?\n\n${itemListStr}`
+            : `Yeh raha hamara ${matchedCategory} menu! Aap kya pasand karenge?\n\n${itemListStr}`,
+          itemPills
         );
-        return;
-      }
-      if (lowerText === "biryani") {
-        addBotMessage(
-          "🍚 Chicken Dum Biryani - Rs. 380\n🍚 Special Mutton Biryani - Rs. 600",
-          ["Chicken Dum Biryani", "Special Mutton Biryani"],
-        );
-        return;
-      }
-      if (lowerText === "drinks") {
-        addBotMessage(
-          "🥤 Cold Drink 350ml - Rs. 120\n💧 Mineral Water - Rs. 80",
-          ["Cold Drink 350ml", "Mineral Water"],
-        );
+        setChatState("MENU");
         return;
       }
 
-      // Exact string typing match
-      const exactMatch = MENU_ITEMS.find(
-        (m) => m.name.toLowerCase() === lowerText,
-      );
-      if (exactMatch) {
-        setSelectedProduct({
-          name: exactMatch.name,
-          price: exactMatch.price,
-          category: exactMatch.category,
-        });
-        setProductQty(1);
-        setProductSize("Medium");
+      // Rule B: Item Match
+      const cleanInput = lowerText.replace(/[^a-z0-9\s]/g, "").trim();
+      const inputTokens = cleanInput.split(/\s+/).filter((t) => t.length > 2);
+
+      let softMatch = MENU_ITEMS.find((m) => m.name.toLowerCase() === lowerText);
+
+      if (!softMatch) {
+        for (const item of MENU_ITEMS) {
+          const cleanItemName = item.name
+            .toLowerCase()
+            .replace(/[^\x00-\x7F]/g, "")
+            .trim()
+            .replace(/[^a-z0-9\s]/g, "");
+
+          if (cleanItemName.length > 3 && cleanInput.includes(cleanItemName)) {
+            softMatch = item;
+            break;
+          }
+
+          const itemTokens = cleanItemName.split(/\s+/).filter((t) => t.length > 2);
+          for (const token of inputTokens) {
+            if (
+              itemTokens.includes(token) ||
+              (token.endsWith("s") && itemTokens.includes(token.slice(0, -1)))
+            ) {
+              softMatch = item;
+              break;
+            }
+          }
+          if (softMatch) break;
+        }
+      }
+
+      if (softMatch) {
+        setPendingOrder({ name: softMatch.name, price: softMatch.price });
+        setChatState("WAITING_FOR_SIZE");
+        addBotMessage(
+          currentLanguage === "english"
+            ? `Excellent choice! What size would you like for ${softMatch.name}? (Small, Medium, Large)`
+            : `Zabardast! Aapko ${softMatch.name} Small mein chahiye, Medium, ya Large?`,
+        );
         return;
       }
 
       // NLP parsing via Grok for free text
-      const msgHistory = messages.map(m => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.text }] }));
+      let rawHistory = messages.filter(m => !m.isLoading && !m.isSystem && m.text && m.text.trim().length > 0).slice(-10);
+      let msgHistory: any[] = [];
+      // Ensure strict alternating roles as required by Gemini
+      for (const msg of rawHistory) {
+        const role = msg.role === 'user' ? 'user' : 'model';
+        const text = msg.text.trim();
+        if (msgHistory.length > 0 && msgHistory[msgHistory.length - 1].role === role) {
+          msgHistory[msgHistory.length - 1].parts[0].text += `\n${text}`;
+        } else {
+          msgHistory.push({ role, parts: [{ text }] });
+        }
+      }
+      
       const aiRes = await extractIntent(text, activeBotConfig?.prompt, msgHistory);
       if (
         aiRes.intent === "ESCALATE" ||
@@ -936,7 +981,7 @@ ${
         );
         return;
       }
-      if (aiRes.intent === "ORDER_ITEM") {
+      if (aiRes.intent === "ORDER_ITEM" || aiRes.intent === "SINGLE_ORDER_ITEM") {
         if (aiRes.quantity) {
           orderCart.push({
             name: aiRes.item,
@@ -955,11 +1000,11 @@ ${
           );
         } else {
           setPendingOrder({ name: aiRes.item, price: aiRes.subtotal });
-          setChatState("WAITING_FOR_QUANTITY");
+          setChatState("WAITING_FOR_SIZE");
           addBotMessage(
             currentLanguage === "english"
-              ? `${aiRes.item} selected. How many would you like? (e.g. 1, 2)`
-              : `${aiRes.item} select ho gaya. Kitni quantity chahiye? (Sirf number likhein, e.g., 1, 2)`,
+              ? `Great choice! Would you like your ${aiRes.item} in Small, Medium, or Large?`
+              : `Zabardast! Aapko ${aiRes.item} Small mein chahiye, Medium, ya Large?`
           );
         }
         return;
@@ -974,13 +1019,29 @@ ${
       return;
     }
 
+    if (chatState === "WAITING_FOR_SIZE") {
+      const lowerText = text.toLowerCase();
+      let size = "Medium"; // Default
+      if (lowerText.includes("small") || lowerText.includes("chhota")) size = "Small";
+      else if (lowerText.includes("large") || lowerText.includes("bara") || lowerText.includes("bada")) size = "Large";
+      
+      setPendingOrder({ ...pendingOrder, name: `${pendingOrder.name} (${size})` });
+      setChatState("WAITING_FOR_QUANTITY");
+      addBotMessage(
+        currentLanguage === "english"
+          ? `${size} size selected. How many would you like to order?`
+          : `${size} size select ho gaya. Kitni quantity chahiye?`
+      );
+      return;
+    }
+
     if (chatState === "WAITING_FOR_QUANTITY") {
       const qtyMatch = text.match(/\d+/);
       if (!qtyMatch) {
         addBotMessage(
           currentLanguage === "english"
-            ? "I didn't understand. Please provide just the quantity (e.g. 1, 2)."
-            : "Maazrat, mujhe samajh nahi aaya. Meharbani karke sirf quantity digits me bataiye (e.g., 1, 2).",
+            ? "I didn't understand. Please provide just the quantity."
+            : "Maazrat, mujhe samajh nahi aaya. Meharbani karke sirf quantity digits me bataiye.",
         );
         return;
       }
@@ -1164,7 +1225,7 @@ ${
       if (!digitsMatch) {
         addBotMessage(
           currentLanguage === "english"
-            ? "I didn't understand. Please provide just the number of guests (e.g. 2, 4)."
+            ? "I didn't understand. Please provide just the number of guests."
             : "Maazrat, mujhe samajh nahi aaya. Meharbani karke sirf logon ki tadad digits me bataiye.",
         );
         return;
@@ -1400,6 +1461,35 @@ ${
     doc.save(`SpiceHub_Receipt_${order.id}.pdf`);
   };
 
+  const onQuickReorder = (order: any) => {
+    try {
+      if (!order.details) return;
+      const items = order.details.split(', ');
+      let addedAtLeastOne = false;
+      
+      items.forEach((itemStr: string) => {
+        const qtyMatch = itemStr.match(/^(\d+)x\s+(.+?)(?:\s+\(@Rs\.(\d+)\))?$/);
+        if (qtyMatch) {
+          const qty = parseInt(qtyMatch[1], 10);
+          const name = qtyMatch[2];
+          const price = qtyMatch[3] ? parseInt(qtyMatch[3], 10) : 0;
+          orderCart.push({ qty, name, price });
+          addedAtLeastOne = true;
+        }
+      });
+
+      if (addedAtLeastOne) {
+         setCartTick((t) => t + 1);
+         setShowOrderHistory(false);
+         setIsCartDrawerOpen(true);
+      } else {
+         console.warn("Could not extract items from this order to quick reorder.");
+      }
+    } catch(e) { 
+      console.error("Error quick reordering", e);
+    }
+  };
+
   const onCancelOrder = async (orderId: string) => {
     try {
       await supabase.from("orders").delete().eq("id", orderId);
@@ -1426,7 +1516,16 @@ ${
 
   const submitReview = async () => {
     if (reviewPopup) {
-      // Save review in db here if there's a table
+      try {
+        await supabase.from('order_reviews').insert([{
+          order_id: reviewPopup,
+          rating: rating,
+          review_text: reviewText,
+          created_at: new Date().toISOString()
+        }]);
+      } catch (err) {
+        console.error("Failed to submit review", err);
+      }
       setSuccessPopup({
         title: "Feedback Submitted",
         message: "Thank you for your review!",
@@ -1454,6 +1553,20 @@ ${
       className="relative min-h-[100dvh] w-full overflow-hidden bg-[#060709] text-white"
       style={activeBotConfig?.themeColor ? { '--accent-red': activeBotConfig.themeColor } as React.CSSProperties : undefined}
     >
+      {/* Flying Cart Animation Renderer */}
+      {flyingCartItems.map(item => (
+        <motion.div
+          key={item.id}
+          initial={{ x: item.startX, y: item.startY, scale: 1, opacity: 1 }}
+          animate={{ x: window.innerWidth - 60, y: 30, scale: 0.2, opacity: 0 }}
+          transition={{ duration: 0.8, ease: "anticipate" }}
+          className="fixed z-[9999] pointer-events-none text-4xl drop-shadow-2xl"
+          style={{ top: 0, left: 0 }}
+        >
+          {item.emoji}
+        </motion.div>
+      ))}
+
       {/* Dynamic 3D ambient blurs */}
       <div className="absolute top-1/4 left-1/4 w-[600px] h-[600px] bg-primary/10 rounded-full blur-[150px] mix-blend-screen pointer-events-none" />
       <div className="absolute bottom-1/4 right-1/4 w-[600px] h-[600px] bg-red-600/10 rounded-full blur-[150px] mix-blend-screen pointer-events-none" />
@@ -1507,10 +1620,22 @@ ${
 
           {/* CENTER: Smooth Anchor Links */}
           <div className="hidden md:flex items-center gap-8">
-            <a href="#home-section" className="text-xs uppercase tracking-widest font-semibold text-zinc-400 hover:text-white transition-colors">Home</a>
-            <a href="#menu-section" className="text-xs uppercase tracking-widest font-semibold text-zinc-400 hover:text-white transition-colors">Menu</a>
-            <a href="#deals-section" className="text-xs uppercase tracking-widest font-semibold text-zinc-400 hover:text-white transition-colors">Active Deals</a>
-            <a href="#features-section" className="text-xs uppercase tracking-widest font-semibold text-zinc-400 hover:text-white transition-colors">Features</a>
+            <a href="#home-section" className="text-xs uppercase tracking-widest font-semibold text-zinc-400 hover:text-red-400 transition-colors relative group py-2">
+              Home
+              <span className="absolute bottom-0 left-0 w-0 h-0.5 bg-gradient-to-r from-red-500 to-orange-500 group-hover:w-full transition-all duration-300"></span>
+            </a>
+            <a href="#menu-section" className="text-xs uppercase tracking-widest font-semibold text-zinc-400 hover:text-red-400 transition-colors relative group py-2">
+              Menu
+              <span className="absolute bottom-0 left-0 w-0 h-0.5 bg-gradient-to-r from-red-500 to-orange-500 group-hover:w-full transition-all duration-300"></span>
+            </a>
+            <a href="#services-section" className="text-xs uppercase tracking-widest font-semibold text-zinc-400 hover:text-red-400 transition-colors relative group py-2">
+              Services
+              <span className="absolute bottom-0 left-0 w-0 h-0.5 bg-gradient-to-r from-red-500 to-orange-500 group-hover:w-full transition-all duration-300"></span>
+            </a>
+            <a href="#contact-section" className="text-xs uppercase tracking-widest font-semibold text-zinc-400 hover:text-red-400 transition-colors relative group py-2">
+              Contact Us
+              <span className="absolute bottom-0 left-0 w-0 h-0.5 bg-gradient-to-r from-red-500 to-orange-500 group-hover:w-full transition-all duration-300"></span>
+            </a>
           </div>
 
           {/* Far RIGHT: Responsive Controls */}
@@ -1546,47 +1671,136 @@ ${
                   }
                 }
               }}
-              className="bg-transparent hover:bg-white/5 text-zinc-300 hover:text-white text-xs font-bold uppercase tracking-wider border border-white/10 px-4 py-2.5 rounded-xl transition-all inline-block text-center cursor-pointer"
+              className="bg-transparent hover:bg-white/5 text-zinc-300 hover:text-white text-xs font-bold uppercase tracking-wider border border-white/10 px-4 py-2.5 rounded-xl transition-all hidden md:inline-block text-center cursor-pointer"
             >
               Admin Portal
             </a>
+
+            {/* Mobile Hamburger Menu Toggle */}
+            <button
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="md:hidden relative p-2.5 bg-zinc-900/80 border border-white/5 rounded-xl hover:bg-zinc-800 transition-colors flex items-center justify-center group"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-zinc-300 group-hover:text-white transition-colors">
+                <line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/>
+              </svg>
+            </button>
           </div>
         </div>
       </nav>
 
       <div className="relative z-10 w-full">
+        {/* Mobile Navbar Drawer */}
+        <AnimatePresence>
+          {isMobileMenuOpen && (
+            <>
+              {/* Backdrop */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm md:hidden"
+              />
+              
+              {/* Drawer */}
+              <motion.div
+                initial={{ x: "100%" }}
+                animate={{ x: 0 }}
+                exit={{ x: "100%" }}
+                transition={{ type: "spring", bounce: 0, duration: 0.4 }}
+                className="fixed inset-y-0 right-0 z-[100] w-64 bg-[#0D0E12] border-l border-white/10 p-6 flex flex-col md:hidden shadow-2xl"
+              >
+                <div className="flex items-center justify-between mb-8">
+                  <span className="text-xl font-bold tracking-wider text-white">
+                    Spice<span className="text-primary font-black">Hub</span>
+                  </span>
+                  <button 
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="p-2 text-zinc-400 hover:text-white hover:bg-white/10 rounded-full transition-colors"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+                
+                <div className="flex flex-col gap-6">
+                  <a href="#home-section" onClick={() => setIsMobileMenuOpen(false)} className="text-sm uppercase tracking-widest font-semibold text-zinc-300 hover:text-red-400 transition-colors py-2 border-b border-white/5">Home</a>
+                  <a href="#menu-section" onClick={() => setIsMobileMenuOpen(false)} className="text-sm uppercase tracking-widest font-semibold text-zinc-300 hover:text-red-400 transition-colors py-2 border-b border-white/5">Menu</a>
+                  <a href="#services-section" onClick={() => setIsMobileMenuOpen(false)} className="text-sm uppercase tracking-widest font-semibold text-zinc-300 hover:text-red-400 transition-colors py-2 border-b border-white/5">Services</a>
+                  <a href="#contact-section" onClick={() => setIsMobileMenuOpen(false)} className="text-sm uppercase tracking-widest font-semibold text-zinc-300 hover:text-red-400 transition-colors py-2 border-b border-white/5">Contact Us</a>
+                  
+                  <a
+                    href="?view=admin"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setIsMobileMenuOpen(false);
+                      const newurl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?view=admin';
+                      window.history.pushState({ path: newurl }, '', newurl);
+                      if (user?.email === 'admin@spicehub.com') {
+                        if (setIsAdminOpen) setIsAdminOpen(true);
+                      } else {
+                        if (onLoginClick) onLoginClick();
+                      }
+                    }}
+                    className="mt-4 bg-transparent hover:bg-white/5 text-zinc-300 hover:text-white text-xs font-bold uppercase tracking-wider border border-white/10 px-4 py-3 rounded-xl transition-all text-center"
+                  >
+                    Admin Portal
+                  </a>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+
+        {/* PREMIUM BACKGROUND ACCENTS FOR HERO */}
+        <div className="absolute inset-x-0 -top-40 -z-10 transform-gpu overflow-hidden blur-3xl sm:-top-80" aria-hidden="true">
+          <div className="relative left-[calc(50%-11rem)] aspect-[1155/678] w-[36.125rem] -translate-x-1/2 rotate-[30deg] bg-gradient-to-tr from-[#ff80b5] to-[#ff4646] opacity-20 sm:left-[calc(50%-30rem)] sm:w-[72.1875rem]" style={{ clipPath: "polygon(74.1% 44.1%, 100% 61.6%, 97.5% 26.9%, 85.5% 0.1%, 80.7% 2%, 72.5% 32.5%, 60.2% 62.4%, 52.4% 68.1%, 47.5% 58.3%, 45.2% 34.5%, 27.5% 76.7%, 0.1% 64.9%, 17.9% 100%, 27.6% 76.8%, 76.1% 97.7%, 74.1% 44.1%)" }}></div>
+        </div>
+
         {/* HERO SECTION BANNER */}
-        <section className="max-w-7xl mx-auto px-6 pt-16 pb-24 md:py-32 flex flex-col md:flex-row items-center gap-16 min-h-[85vh]">
+        <section className="max-w-7xl mx-auto px-6 md:px-12 lg:px-6 pt-20 pb-24 md:pt-36 md:pb-28 lg:pt-48 lg:pb-32 flex flex-col md:flex-row items-center gap-10 md:gap-12 lg:gap-16 min-h-[85vh]">
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
-            className="w-full md:w-7/12 text-left space-y-8"
+            className="w-full md:w-6/12 text-left space-y-6 md:space-y-8"
           >
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-semibold tracking-wider uppercase">
-              <Sparkles size={14} className="animate-pulse" /> Pakistan's First Roman Urdu AI Butler
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-red-500/10 to-orange-500/10 border border-red-500/20 text-red-500 text-xs font-bold tracking-widest uppercase shadow-[0_0_15px_rgba(239,68,68,0.1)] backdrop-blur-md">
+              <Sparkles size={14} className="animate-pulse text-orange-400" /> Premium Dining Experience
             </div>
             
-            <h1 className="text-4xl sm:text-5xl lg:text-7xl font-black tracking-tight leading-[1.1] text-white">
-              Craving Speed?<br />Order Instantly via <span className="text-primary bg-clip-text bg-gradient-to-r from-primary to-rose-400">AI Chatbot!</span>
+            <h1 className="text-4xl sm:text-6xl md:text-5xl lg:text-7xl font-black tracking-tighter leading-[1.05] text-white">
+              Savor the True <br /> Taste of <span className="text-transparent bg-clip-text bg-gradient-to-br from-red-400 via-orange-500 to-yellow-500 drop-shadow-lg">SpiceHub</span>
             </h1>
             
-            <p className="text-lg md:text-xl text-zinc-400 font-medium max-w-xl leading-relaxed">
-              Experience Pakistan's first fully conversational Roman Urdu automated restaurant executive. Chat naturally, customize your flavor palette, and get food delivered instantly.
+            <p className="text-lg md:text-xl lg:text-xl text-zinc-400 font-medium max-w-lg leading-relaxed mix-blend-plus-lighter">
+              Indulge in authentic cuisines crafted with passion. Whether dining in or ordering at home, our AI Concierge ensures a flawless, premium culinary journey.
             </p>
             
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 pt-4">
+            <div className="flex flex-wrap items-center gap-4 pt-6">
               <button
                 onClick={() => setIsWidgetOpen(true)}
-                className="bg-primary hover:bg-primary/90 text-[#0F172A] px-8 py-4 rounded-xl font-bold text-base transition-transform hover:scale-[1.02] active:scale-95 shadow-lg shadow-primary/20 flex items-center justify-center gap-3"
+                className="bg-gradient-to-b from-red-500 to-red-700 hover:from-red-400 hover:to-red-600 text-white px-8 py-4 rounded-2xl font-bold text-base transition-all hover:scale-105 active:scale-95 shadow-[0_10px_30px_rgba(239,68,68,0.4),inset_0_2px_4px_rgba(255,255,255,0.3)] flex items-center justify-center gap-3 border border-red-400/50"
               >
-                ⚡ Chat & Order Now
+                ⚡ Order Now
               </button>
               <a
                 href="#menu-section"
-                className="bg-zinc-900 hover:bg-zinc-800 border border-white/10 text-white px-8 py-4 rounded-xl font-bold text-base transition-all flex items-center justify-center gap-3"
+                className="bg-zinc-900/50 backdrop-blur-xl border border-white/10 hover:border-white/20 hover:bg-zinc-800/80 text-white px-8 py-4 rounded-2xl font-bold text-base transition-all shadow-xl hover:-translate-y-1 flex items-center justify-center gap-3"
               >
                 Browse Menu
+              </a>
+              <a
+                href="#services-section"
+                className="bg-transparent text-zinc-300 hover:text-white px-6 py-4 rounded-2xl font-bold text-base transition-all hover:bg-white/5 flex items-center justify-center"
+              >
+                Services
+              </a>
+              <a
+                href="#contact-section"
+                className="bg-transparent text-zinc-300 hover:text-white px-6 py-4 rounded-2xl font-bold text-base transition-all hover:bg-white/5 flex items-center justify-center"
+              >
+                Contact Us
               </a>
             </div>
           </motion.div>
@@ -1594,34 +1808,36 @@ ${
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.6, delay: 0.1 }}
-            className="w-full md:w-5/12 flex flex-col justify-center"
+            transition={{ duration: 0.6, delay: 0.2 }}
+            className="w-full md:w-6/12 flex flex-col items-center justify-center relative"
           >
-            <div className="bg-white/[0.02] backdrop-blur-3xl rounded-3xl border border-white/5 p-8 sm:p-12 shadow-2xl relative overflow-hidden group">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full blur-2xl group-hover:bg-primary/20 transition-colors" />
-              
-              <div className="w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary mb-8">
-                <UtensilsCrossed size={32} />
+            {/* Soft Ambient glowing orb in background */}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] bg-red-600/20 rounded-full blur-[100px] select-none pointer-events-none"></div>
+
+            <div className="w-full bg-zinc-900/40 backdrop-blur-3xl rounded-[2.5rem] border border-white/10 p-8 sm:p-12 shadow-[0_40px_80px_rgba(0,0,0,0.5),inset_0_2px_1px_rgba(255,255,255,0.05)] relative group z-10 hover:-translate-y-2 transition-transform duration-500">              
+              <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-red-500/20 to-orange-500/10 border border-red-500/30 flex items-center justify-center text-red-400 mb-8 shadow-inner relative overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent"></div>
+                <UtensilsCrossed size={36} className="relative z-10 drop-shadow-[0_2px_10px_rgba(239,68,68,0.8)]" />
               </div>
               
-              <h3 className="text-2xl font-bold mb-4 text-white">
-                Premium Kitchen Architecture
+              <h3 className="text-3xl font-black mb-4 text-white tracking-tight drop-shadow-md">
+                Gourmet Excellence
               </h3>
               
-              <p className="text-zinc-400 leading-relaxed mb-6">
-                Our dynamic logistics layer processes every conversational request real-time, delivering blazing hot, accurate gourmet recipes to your doorstep.
+              <p className="text-zinc-400 leading-relaxed mb-8 text-lg mix-blend-plus-lighter">
+                From sizzling grills to traditional curries, our master chefs use only the freshest ingredients to deliver an unforgettable dining experience.
               </p>
 
-              <div className="border-t border-white/5 pt-6 flex items-center justify-between">
+              <div className="border-t border-white/10 pt-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className="flex -space-x-3">
-                  {["😊", "😋", "😍", "🍕"].map((emoji, index) => (
-                    <div key={index} className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center border-2 border-[#060709] text-sm select-none">
+                  {["🔥", "🥘", "🍛", "🥩"].map((emoji, index) => (
+                    <div key={index} className="w-12 h-12 rounded-full bg-gradient-to-b from-zinc-800 to-zinc-900 flex items-center justify-center border-2 border-[#0D0E12] shadow-lg text-lg select-none hover:-translate-y-1 transition-transform">
                       {emoji}
                     </div>
                   ))}
                 </div>
-                <div className="text-xs text-zinc-400 font-semibold tracking-wider">
-                  Trusted by 12k+ diners
+                <div className="text-sm text-zinc-300 font-bold bg-white/5 px-4 py-2 rounded-xl border border-white/5 shadow-inner">
+                  Rated 4.9/5 by 12k+ diners
                 </div>
               </div>
             </div>
@@ -1660,7 +1876,7 @@ ${
 
             {/* Category Switcher Tabs */}
             <div className="flex flex-wrap gap-2.5 bg-zinc-900/60 p-1.5 rounded-2xl border border-white/5">
-              {["All", "Burgers", "Pizza", "Biryani", "Drinks"].map((cat) => (
+              {["All", "BBQ & Grill", "Karahi & Handi", "Biryani & Rice", "Traditional Curries", "Fast Food", "Desserts & Sweets", "Beverages"].map((cat) => (
                 <button
                   key={cat}
                   onClick={() => setLandingPageCategory(cat)}
@@ -1677,7 +1893,30 @@ ${
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
-            {MENU_ITEMS.filter((item) => landingPageCategory === "All" || item.category === landingPageCategory).map((item, idx) => {
+            {isLoadingMenu ? (
+              Array(8).fill(0).map((_, i) => (
+                <div key={i} className="animate-pulse bg-white/[0.02] border border-white/5 rounded-3xl p-6 h-96 flex flex-col justify-between relative">
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="w-14 h-14 rounded-2xl bg-zinc-900 border border-white/5"></div>
+                      <div className="flex gap-1.5">
+                        <div className="w-16 h-6 rounded-full bg-zinc-800"></div>
+                      </div>
+                    </div>
+                    <div className="w-3/4 h-6 bg-zinc-800 rounded-lg"></div>
+                    <div className="space-y-2">
+                       <div className="w-full h-4 bg-zinc-800/50 rounded-lg"></div>
+                       <div className="w-5/6 h-4 bg-zinc-800/50 rounded-lg"></div>
+                       <div className="w-4/6 h-4 bg-zinc-800/50 rounded-lg"></div>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex items-end justify-between border-t border-white/5 pt-4">
+                    <div className="w-20 h-8 bg-zinc-800 rounded-lg"></div>
+                    <div className="w-10 h-10 rounded-xl bg-zinc-800"></div>
+                  </div>
+                </div>
+              ))
+            ) : MENU_ITEMS.filter((item) => landingPageCategory === "All" || item.category === landingPageCategory).map((item, idx) => {
               // Extract the base emoji and label name
               const nameParts = item.name.split(" ");
               const itemEmoji = nameParts[0] || "🍔";
@@ -1759,123 +1998,242 @@ ${
           </div>
         </section>
 
-        {/* ACTIVE DEALS SECTION */}
-        <section id="deals-section" className="border-t border-white/5 max-w-7xl mx-auto px-6 py-24 scroll-mt-24">
+        {/* SERVICES SECTION */}
+        <section id="services-section" className="border-t border-white/5 max-w-7xl mx-auto px-6 py-24 scroll-mt-24">
           <div className="text-center max-w-3xl mx-auto mb-16 space-y-4">
-            <h2 className="text-3xl sm:text-5xl font-black tracking-tight text-white">
-              Limited Active Deals
+            <h2 className="text-4xl sm:text-5xl font-black tracking-tight text-white">
+              Our Premium <span className="text-transparent bg-clip-text bg-gradient-to-r from-red-400 to-orange-500">Services</span>
             </h2>
             <p className="text-lg text-zinc-400 font-medium leading-relaxed">
-              Unlock exclusive combos designed to supercharge your meal experience. Available dynamically when chatting with our Roman Urdu order agent.
+              Elevating your culinary experience with top-tier hospitality, seamless ordering, and authentic flavors.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="bg-gradient-to-br from-zinc-900 to-rose-950/10 border border-white/5 rounded-3xl p-8 space-y-6 flex flex-col justify-between relative group">
-              <span className="absolute top-6 right-6 px-3 py-1 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[10px] font-black uppercase tracking-wider">HOT DEAL</span>
-              <div className="space-y-4">
-                <div className="text-4xl">⚡</div>
-                <h3 className="text-2xl font-bold text-white tracking-tight">Ultimate Double Feast</h3>
-                <p className="text-sm text-zinc-400 leading-relaxed">
-                  Buy any Large Family-Size pizza, & receive 2 ice-cold 350ml drinks with a flat 10% discount subtracted automatically on checkout.
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {[
+              { title: "Dine-In Experience", icon: "✨", desc: "Enjoy a luxurious ambient atmosphere with VIP table service and elegant interior design." },
+              { title: "Home Delivery", icon: "🚚", desc: "Lightning-fast delivery ensuring your food arrives blazing hot and perfectly packed." },
+              { title: "Online Ordering", icon: "📱", desc: "Order seamlessly via our advanced AI Chatbot or interactive digital menu platform." },
+              { title: "Catering Services", icon: "🍱", desc: "Premium bulk catering for corporate meetings, weddings, and grand celebrations." },
+              { title: "Event Catering", icon: "🎉", desc: "Customize specialized menus for live BBQ stations and traditional buffet setups." },
+              { title: "Family Gatherings", icon: "👨‍👩‍👧‍👦", desc: "Private dining halls and exclusive combo platters designed for family feasts." }
+            ].map((service, idx) => (
+              <div key={idx} className="bg-zinc-900/40 backdrop-blur-md border border-white/5 hover:border-red-500/30 rounded-3xl p-8 space-y-6 group transition-all hover:-translate-y-2 shadow-lg shadow-black/20">
+                <div className="w-16 h-16 rounded-2xl bg-red-500/10 flex items-center justify-center text-3xl group-hover:scale-110 transition-transform duration-300">
+                  {service.icon}
+                </div>
+                <div>
+                  <h3 className="text-2xl font-bold text-white tracking-tight mb-3 group-hover:text-red-400 transition-colors">{service.title}</h3>
+                  <p className="text-sm text-zinc-400 leading-relaxed text-balance">
+                    {service.desc}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* CONTACT US SECTION */}
+        <section id="contact-section" className="border-t border-white/5 bg-gradient-to-b from-[#0D0E12] to-zinc-950 py-24 px-6 scroll-mt-24">
+          <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+            <div className="space-y-10">
+              <div>
+                <h2 className="text-4xl sm:text-5xl font-black tracking-tight text-white mb-4">
+                  Get In Touch
+                </h2>
+                <p className="text-lg text-zinc-400 font-medium leading-relaxed">
+                  Have questions or want to make a reservation? Reach out to us directly or visit our flagship outlet.
                 </p>
               </div>
-              <div className="pt-6 border-t border-white/5 flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-zinc-500">Discount Code</p>
-                  <p className="text-sm font-extrabold text-primary tracking-wider uppercase">CHATFEAST</p>
+
+              <div className="space-y-6">
+                <div className="flex items-center gap-4 group">
+                  <div className="w-14 h-14 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center text-red-500 group-hover:bg-red-500 group-hover:text-white transition-all">
+                    💬
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-white">Chat With Us</h4>
+                    <a href="https://wa.me/923001234567" target="_blank" rel="noopener noreferrer" className="text-zinc-400 hover:text-green-500 transition-colors">Start WhatsApp Chat</a>
+                  </div>
                 </div>
-                <button onClick={() => setIsWidgetOpen(true)} className="bg-zinc-800 hover:bg-zinc-700 text-xs font-black uppercase tracking-wider text-white px-4 py-2.5 rounded-xl">Order via AI</button>
+                <div className="flex items-center gap-4 group">
+                  <div className="w-14 h-14 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center text-red-500 group-hover:bg-red-500 group-hover:text-white transition-all">
+                    ✉️
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-white">Email</h4>
+                    <p className="text-zinc-400">waleedikram1012@gmail.com</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4 group">
+                  <div className="w-14 h-14 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center text-red-500 group-hover:bg-red-500 group-hover:text-white transition-all">
+                    📍
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-white">Address</h4>
+                    <a href="https://maps.google.com/?q=Mansehra,+KPK,+Pakistan" target="_blank" rel="noopener noreferrer" className="text-zinc-400 hover:text-red-500 transition-colors underline decoration-white/20 underline-offset-4">Get Directions</a>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4 group">
+                  <div className="w-14 h-14 rounded-full bg-zinc-900 border border-white/10 flex items-center justify-center text-red-500 group-hover:bg-red-500 group-hover:text-white transition-all">
+                    ⏰
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-white">Business Hours</h4>
+                    <p className="text-zinc-400">Mon-Sun: 12:00 PM - 2:00 AM</p>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="bg-gradient-to-br from-zinc-900 to-primary/5 border border-primary/20 rounded-3xl p-8 space-y-6 flex flex-col justify-between relative group shadow-lg shadow-primary/5">
-              <span className="absolute top-6 right-6 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-[10px] font-black uppercase tracking-wider">STUDENT FAVORITE</span>
-              <div className="space-y-4">
-                <div className="text-4xl">🔥</div>
-                <h3 className="text-2xl font-bold text-white tracking-tight">Student Charger Combo</h3>
-                <p className="text-sm text-zinc-400 leading-relaxed">
-                  Get our signature crispy chicken Zinger Burger paired with a cold refreshing drink of your choice for a customized price of just Rs. 500 flat.
-                </p>
-              </div>
-              <div className="pt-6 border-t border-white/5 flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-zinc-500">Discount Code</p>
-                  <p className="text-sm font-extrabold text-primary tracking-wider uppercase">ZINGER500</p>
+            <div className="bg-zinc-900/50 backdrop-blur-xl border border-white/5 rounded-[2.5rem] p-8 sm:p-10 shadow-2xl relative overflow-hidden">
+              <div className="absolute -top-32 -right-32 w-64 h-64 bg-red-500/20 rounded-full blur-3xl pointer-events-none"></div>
+              <h3 className="text-2xl font-bold text-white mb-8">Send Us A Message</h3>
+              <form 
+                className="space-y-6 relative z-10" 
+                action="https://formspree.io/f/xdavjajo"
+                method="POST"
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-zinc-400">Full Name</label>
+                    <input 
+                      type="text" 
+                      name="name"
+                      placeholder="John Doe" 
+                      required
+                      className="w-full bg-zinc-950/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all placeholder:text-zinc-600" 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-zinc-400">Email Address</label>
+                    <input 
+                      type="email" 
+                      name="email"
+                      placeholder="john@example.com" 
+                      required
+                      className="w-full bg-zinc-950/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all placeholder:text-zinc-600" 
+                    />
+                  </div>
                 </div>
-                <button onClick={() => setIsWidgetOpen(true)} className="bg-primary text-[#0F172A] hover:bg-primary/95 text-xs font-black uppercase tracking-wider px-4 py-2.5 rounded-xl">Order via AI</button>
-              </div>
-            </div>
-
-            <div className="bg-gradient-to-br from-zinc-900 to-zinc-950 border border-white/5 rounded-3xl p-8 space-y-6 flex flex-col justify-between relative group">
-              <span className="absolute top-6 right-6 px-3 py-1 rounded-full bg-zinc-800 text-zinc-400 text-[10px] font-black uppercase tracking-wider">SUNDAY SPECIAL</span>
-              <div className="space-y-4">
-                <div className="text-4xl">👑</div>
-                <h3 className="text-2xl font-bold text-white tracking-tight">Royal Handi Special</h3>
-                <p className="text-sm text-zinc-400 leading-relaxed">
-                  Indulge in our exquisite aromatic Mutton Handi Biryani! Receive free hot double-fudge brownies on checkouts valued above Rs 1500.
-                </p>
-              </div>
-              <div className="pt-6 border-t border-white/5 flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-zinc-500">Discount Code</p>
-                  <p className="text-sm font-extrabold text-primary tracking-wider uppercase">ROYAL1500</p>
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-zinc-400">Message</label>
+                  <textarea 
+                    rows={4} 
+                    name="message"
+                    required
+                    placeholder="How can we help you?" 
+                    className="w-full bg-zinc-950/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all placeholder:text-zinc-600 resize-none"
+                  ></textarea>
                 </div>
-                <button onClick={() => setIsWidgetOpen(true)} className="bg-zinc-800 hover:bg-zinc-700 text-xs font-black uppercase tracking-wider text-white px-4 py-2.5 rounded-xl">Order via AI</button>
-              </div>
+                <button 
+                  type="submit" 
+                  className="w-full bg-gradient-to-r from-red-500 to-orange-500 text-white font-bold py-4 rounded-xl hover:shadow-[0_0_20px_rgba(239,68,68,0.4)] transition-all"
+                >
+                  Send Message
+                </button>
+              </form>
             </div>
           </div>
         </section>
 
-        {/* FEATURES AND TECHNOLOGY HIGHLIGHTS SECTION */}
-        <section id="features-section" className="border-t border-white/5 bg-[#0D0E12]/20 py-24 px-6 scroll-mt-24">
+        {/* PREMIUM FOOTER */}
+        <footer className="border-t border-white/10 bg-black pt-20 pb-10 px-6 relative overflow-hidden">
           <div className="max-w-7xl mx-auto">
-            <div className="max-w-3xl mb-20 space-y-4">
-              <h2 className="text-3xl sm:text-5xl font-black tracking-tight text-white">
-                Powered by Advanced AI Conversational Pipeline
-              </h2>
-              <p className="text-lg text-zinc-400 font-medium">
-                Our modern software layers execute high-concurrency culinary processes, bringing elite tech directly to Pakistan's local delivery landscape.
-              </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 mb-16">
+              <div className="space-y-6 lg:col-span-1">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-red-600 to-orange-500 flex items-center justify-center shadow-lg">
+                    <span className="text-base font-black italic tracking-tighter text-white">SH</span>
+                  </div>
+                  <span className="text-2xl font-bold tracking-wider text-white select-none">
+                    Spice<span className="text-red-500 font-black">Hub</span>
+                  </span>
+                </div>
+                <p className="text-zinc-500 text-sm leading-relaxed">
+                  Redefining Pakistani culinary traditions with a modern AI-driven experience. Authentic taste, delivered instantly.
+                </p>
+                <div className="flex items-center gap-4 pt-2">
+                  <a href="https://facebook.com/spicehub" target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-full bg-zinc-900 border border-white/5 flex items-center justify-center text-zinc-400 hover:text-blue-500 hover:bg-zinc-800 transition-all cursor-pointer">
+                    <Facebook size={18} />
+                  </a>
+                  <a href="https://youtube.com/@spicehub" target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-full bg-zinc-900 border border-white/5 flex items-center justify-center text-zinc-400 hover:text-red-500 hover:bg-zinc-800 transition-all cursor-pointer">
+                    <Youtube size={18} />
+                  </a>
+                  <a href="https://twitter.com/spicehub" target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-full bg-zinc-900 border border-white/5 flex items-center justify-center text-zinc-400 hover:text-sky-500 hover:bg-zinc-800 transition-all cursor-pointer">
+                    <Twitter size={18} />
+                  </a>
+                  <a href="https://instagram.com/spicehub" target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-full bg-zinc-900 border border-white/5 flex items-center justify-center text-zinc-400 hover:text-pink-500 hover:bg-zinc-800 transition-all cursor-pointer">
+                    <Instagram size={18} />
+                  </a>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-white font-bold mb-6 tracking-wide uppercase text-sm">Quick Links</h4>
+                <ul className="space-y-3">
+                  <li><a href="#home-section" className="text-zinc-500 hover:text-red-400 transition-colors text-sm">Home</a></li>
+                  <li><a href="#menu-section" className="text-zinc-500 hover:text-red-400 transition-colors text-sm">Browse Menu</a></li>
+                  <li><a href="#services-section" className="text-zinc-500 hover:text-red-400 transition-colors text-sm">Services</a></li>
+                  <li><a href="#contact-section" className="text-zinc-500 hover:text-red-400 transition-colors text-sm">Contact Us</a></li>
+                </ul>
+              </div>
+
+              <div>
+                <h4 className="text-white font-bold mb-6 tracking-wide uppercase text-sm">Contact Info</h4>
+                <ul className="space-y-3 text-sm text-zinc-500">
+                  <li className="flex items-start gap-2">
+                    <span className="text-red-500">📍</span>
+                    <a href="https://maps.google.com/?q=Mansehra,+KPK,+Pakistan" target="_blank" rel="noopener noreferrer" className="hover:text-red-400 transition-colors underline decoration-white/20 underline-offset-4">Get Directions</a>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="text-red-500">✉️</span>
+                    <a href="mailto:waleedikram1012@gmail.com" className="hover:text-red-400 transition-colors">waleedikram1012@gmail.com</a>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="text-red-500">💬</span>
+                    <a href="https://wa.me/923001234567" target="_blank" rel="noopener noreferrer" className="hover:text-green-500 font-bold transition-colors text-green-400">Chat on WhatsApp</a>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-red-500">⏰</span>
+                    <span>Mon - Sun<br />12:00 PM - 2:00 AM</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div>
+                <h4 className="text-white font-bold mb-6 tracking-wide uppercase text-sm">Newsletter</h4>
+                <p className="text-zinc-500 text-sm mb-4">Subscribe to receive exclusive AI-discounts and menu updates.</p>
+                <form className="relative" onSubmit={(e) => e.preventDefault()}>
+                  <input type="email" placeholder="Your Email" className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-red-500 pr-24" />
+                  <button className="absolute right-1.5 top-1.5 bottom-1.5 bg-zinc-800 hover:bg-red-500 text-white font-bold px-4 rounded-lg text-xs tracking-wider uppercase transition-colors">
+                    Join
+                  </button>
+                </form>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
-              <div className="space-y-4">
-                <div className="w-12 h-12 rounded-xl bg-zinc-900 border border-white/5 flex items-center justify-center text-xl text-primary">💬</div>
-                <h4 className="text-xl font-bold text-white tracking-tight">Natural Roman Urdu Speech</h4>
-                <p className="text-zinc-400 leading-relaxed text-sm">
-                  Order casually in natural local jargon! (e.g., "bhai aik zinger burger or cold-drink thandi karke chahiyen"). Our neural Roman Urdu framework parses intent dynamically with zero lag.
-                </p>
-              </div>
-
-              <div className="space-y-4">
-                <div className="w-12 h-12 rounded-xl bg-zinc-900 border border-white/5 flex items-center justify-center text-xl text-primary">🧠</div>
-                <h4 className="text-xl font-bold text-white tracking-tight">Gemini Smart Upselling</h4>
-                <p className="text-zinc-400 leading-relaxed text-sm">
-                  Never miss out on flavor pairings! Our custom deep context checks recommend relevant sides, special drinks, or portion expansion advice dynamically modeled to fit your cart food profile.
-                </p>
-              </div>
-
-              <div className="space-y-4">
-                <div className="w-12 h-12 rounded-xl bg-zinc-900 border border-white/5 flex items-center justify-center text-xl text-primary">📄</div>
-                <h4 className="text-xl font-bold text-white tracking-tight">Instant PDF Invoice Generation</h4>
-                <p className="text-zinc-400 leading-relaxed text-sm">
-                  Transparency guaranteed. Our server pipeline registers finalized coordinates and exports beautiful receipt layouts, detailing price calculations, tax lines, and deliverer metadata in real time.
-                </p>
+            <div className="border-t border-white/10 pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
+              <p className="text-zinc-600 text-sm text-center md:text-left">
+                &copy; {new Date().getFullYear()} SpiceHub Technologies. All rights reserved.
+              </p>
+              <div className="flex gap-6">
+                <a href="#" className="text-zinc-600 hover:text-white text-sm transition-colors">Privacy Policy</a>
+                <a href="#" className="text-zinc-600 hover:text-white text-sm transition-colors">Terms of Service</a>
               </div>
             </div>
           </div>
-        </section>
+        </footer>
       </div>
 
       <AnimatePresence>
         {isWidgetOpen && (
           <motion.div
             key="chat-widget"
-            initial={{ opacity: 0, scale: 0.8, y: 30 }}
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.8, y: 30 }}
-            transition={{ type: "spring", bounce: 0.5, duration: 0.5 }}
+            exit={{ opacity: 0, scale: 0.95, y: 10 }}
+            transition={{ type: "tween", ease: "circOut", duration: 0.3 }}
             className="chat-widget-container flex flex-col overflow-hidden bg-base/95 backdrop-blur-xl text-content border border-border outline-none transition-[width,height,border-radius] duration-300"
             style={
               viewMode === "MOBILE"
@@ -2167,14 +2525,6 @@ ${
                   {/* Header */}
                   <header className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-base px-4 md:px-6">
                     <div className="flex items-center">
-                      <div className="md:hidden mr-3">
-                        <button
-                          onClick={() => setIsWidgetOpen(false)}
-                          className="p-2 text-content-muted hover:text-primary"
-                        >
-                          <XCircle size={24} />
-                        </button>
-                      </div>
                       <div className="flex items-center justify-start gap-3">
                         <div className="relative flex items-center justify-center h-10 w-10 shrink-0 rounded-full bg-base border-2 border-primary shadow-sm flex-none">
                           <div className="absolute inset-0 bg-gradient-to-tr from-primary/20 to-transparent"></div>
@@ -2188,14 +2538,27 @@ ${
                       </div>
                     </div>
                     <div className="flex items-center gap-4">
+                      {/* Close Button */}
+                      <button
+                        onClick={() => {
+                          setIsWidgetOpen(false);
+                          document.getElementById('main-focus-element')?.focus() || document.body.focus();
+                        }}
+                        style={{ position: 'absolute', right: '1rem', top: '1rem' }}
+                        className="opacity-20 hover:opacity-100 bg-black/60 hover:bg-red-500/90 text-zinc-300 hover:text-white p-2 rounded-full transition-all group focus:outline-none focus:opacity-100 z-[9999]"
+                        title="Close Chatbot"
+                      >
+                        <X size={24} className="group-hover:scale-110 transition-transform" />
+                      </button>
+
                       {/* View Toggles */}
                       <div className="hidden md:flex bg-surface-hover rounded-lg p-1 border border-border">
                         <button
-                          onClick={() => setViewMode("MOBILE")}
-                          title="Fluid Full Screen"
+                          onClick={() => setViewMode("PC")}
+                          title="Mobile Drawer View"
                           className={cn(
                             "p-1.5 rounded-md transition-all flex items-center justify-center",
-                            viewMode === "MOBILE"
+                            viewMode === "PC"
                               ? "bg-primary text-[#0F172A] dark:text-white shadow"
                               : "text-content-muted hover:text-primary",
                           )}
@@ -2223,11 +2586,11 @@ ${
                           </svg>
                         </button>
                         <button
-                          onClick={() => setViewMode("PC")}
-                          title="Compact Drawer"
+                          onClick={() => setViewMode("MOBILE")}
+                          title="PC Full Screen View"
                           className={cn(
                             "p-1.5 rounded-md transition-all flex items-center justify-center",
-                            viewMode === "PC"
+                            viewMode === "MOBILE"
                               ? "bg-primary text-[#0F172A] dark:text-white shadow"
                               : "text-content-muted hover:text-primary",
                           )}
@@ -2367,6 +2730,19 @@ ${
                                 </p>
                               </div>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="bg-gradient-to-br from-yellow-500/10 to-orange-500/10 border border-yellow-500/20 p-5 rounded-xl md:col-span-2 flex items-center justify-between">
+                                  <div>
+                                    <div className="text-xs font-bold text-yellow-500 uppercase tracking-wider mb-1">
+                                      SpiceHub Rewards
+                                    </div>
+                                    <div className="text-2xl font-black text-white">
+                                      {orderHistory.reduce((acc, order) => acc + Math.floor((order.total || 0) / 10), 0)} <span className="text-sm font-medium text-yellow-500/80">Pts</span>
+                                    </div>
+                                  </div>
+                                  <div className="w-12 h-12 rounded-full bg-yellow-500/20 flex items-center justify-center text-2xl shadow-[0_0_15px_rgba(234,179,8,0.2)]">
+                                    🌟
+                                  </div>
+                                </div>
                                 <div className="bg-base border border-border p-5 rounded-xl">
                                   <div className="text-xs font-bold text-content-muted uppercase tracking-wider mb-2">
                                     User Name
@@ -2510,10 +2886,10 @@ ${
                               </div>
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-6">
                                 <button
-                                  onClick={() => setViewMode("MOBILE")}
+                                  onClick={() => setViewMode("PC")}
                                   className={cn(
                                     "flex flex-col items-center justify-center gap-4 p-8 rounded-xl border-2 transition-all w-full",
-                                    viewMode === "MOBILE"
+                                    viewMode === "PC"
                                       ? "border-primary bg-primary/5 shadow-lg shadow-primary/10"
                                       : "border-border bg-base hover:border-border/80",
                                   )}
@@ -2528,7 +2904,7 @@ ${
                                     strokeLinecap="round"
                                     strokeLinejoin="round"
                                     className={
-                                      viewMode === "MOBILE"
+                                      viewMode === "PC"
                                         ? "text-primary"
                                         : "text-content-muted"
                                     }
@@ -2543,18 +2919,18 @@ ${
                                     <path d="M12 44h6" />
                                   </svg>
                                   <div className="text-sm font-bold text-content">
-                                    Full-Screen Mode
+                                    Mobile Drawer Shape
                                   </div>
                                   <div className="text-xs text-content-muted text-center px-4">
-                                    Absolute edge-to-edge fluid 100vw stretch behavior.
+                                    Compact structure restricted to a 380px boundary logic.
                                   </div>
                                 </button>
 
                                 <button
-                                  onClick={() => setViewMode("PC")}
+                                  onClick={() => setViewMode("MOBILE")}
                                   className={cn(
                                     "flex flex-col items-center justify-center gap-4 p-8 rounded-xl border-2 transition-all w-full",
-                                    viewMode === "PC"
+                                    viewMode === "MOBILE"
                                       ? "border-primary bg-primary/5 shadow-lg shadow-primary/10"
                                       : "border-border bg-base hover:border-border/80",
                                   )}
@@ -2569,7 +2945,7 @@ ${
                                     strokeLinecap="round"
                                     strokeLinejoin="round"
                                     className={
-                                      viewMode === "PC"
+                                      viewMode === "MOBILE"
                                         ? "text-primary"
                                         : "text-content-muted"
                                     }
@@ -2585,10 +2961,10 @@ ${
                                     <path d="M30 36v4" />
                                   </svg>
                                   <div className="text-sm font-bold text-content">
-                                    Drawer Shape
+                                    PC Full-Screen Mode
                                   </div>
                                   <div className="text-xs text-content-muted text-center px-4">
-                                    Compact structure restricted to a 380px boundary logic.
+                                    Absolute edge-to-edge fluid 100vw stretch behavior.
                                   </div>
                                 </button>
                               </div>
@@ -2878,20 +3254,6 @@ ${
                                           )}
                                         >
                                           All
-                                        </motion.button>
-                                        <motion.button
-                                          layout
-                                          onClick={() =>
-                                            setActiveCategoryFilter("Most Popular")
-                                          }
-                                          className={cn(
-                                            "flex-shrink-0 px-4 py-2 rounded-full text-sm font-bold border transition-colors snap-start whitespace-nowrap flex items-center gap-2",
-                                            activeCategoryFilter === "Most Popular"
-                                              ? "bg-[#D4AF37] text-white border-[#D4AF37]"
-                                              : "bg-surface text-content-muted border-border hover:border-[#D4AF37]/50",
-                                          )}
-                                        >
-                                          🔥 Most Popular
                                         </motion.button>
                                         {msg.menuCategories.map((cat, idx) => (
                                           <motion.button
@@ -3253,6 +3615,8 @@ ${
                         ))}
                       </div>
 
+                      {/* Spacer removed */}
+
                       {/* Input Footer */}
                       <div className="p-6 bg-base/90 border-t border-border relative">
                         <div className="mx-auto flex max-w-4xl items-center space-x-4 bg-surface-hover p-2 rounded-2xl border border-border shadow-inner">
@@ -3308,16 +3672,16 @@ ${
                           className="w-full max-w-2xl bg-base h-full shadow-2xl flex flex-col p-6 overflow-y-auto border-l border-border"
                         >
                           <div className="flex justify-between items-center pb-6 border-b border-border">
-                            <h2 className="text-2xl font-semibold text-content tracking-tight flex items-center gap-3">
-                              <ShoppingBag size={24} /> Total Checkout
-                            </h2>
                             <button
                               autoFocus
                               onClick={() => setIsCartDrawerOpen(false)}
-                              className="text-content-muted hover:text-content transition-colors p-2 rounded-full outline-none focus:ring-2 focus:ring-primary"
+                              className="text-content-muted hover:text-content transition-colors p-2 rounded-full outline-none focus:ring-2 focus:ring-primary mr-4 bg-surface-hover"
                             >
                               <X size={24} />
                             </button>
+                            <h2 className="text-2xl font-semibold text-content tracking-tight flex items-center gap-3 flex-1">
+                              <ShoppingBag size={24} /> Total Checkout
+                            </h2>
                           </div>
 
                           {orderCart.length === 0 ? (
@@ -3461,6 +3825,15 @@ ${
                                           <XCircle size={16} />
                                         </button>
                                       )}
+                                      <button
+                                        onClick={() =>
+                                          onQuickReorder(order)
+                                        }
+                                        className="flex items-center justify-center w-8 h-8 bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 rounded-lg transition-colors"
+                                        title="Quick Reorder"
+                                      >
+                                        <RefreshCw size={16} />
+                                      </button>
                                       <button
                                         onClick={() =>
                                           generatePDFReceipt(order)
@@ -3670,7 +4043,7 @@ ${
 
                           <div className="mt-8 flex flex-col sm:flex-row gap-3">
                             <button
-                              onClick={() => {
+                              onClick={(e) => {
                                 const sizeMultiplier =
                                   productSize === "Small"
                                     ? 0.8
@@ -3680,6 +4053,15 @@ ${
                                 const finalPrice = Math.round(
                                   selectedProduct.price * sizeMultiplier,
                                 );
+                                
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const id = crypto.randomUUID();
+                                const emoji = selectedProduct.name.split(" ")[0] || "🛒";
+                                setFlyingCartItems(prev => [...prev, { id, startX: rect.left + rect.width / 2, startY: rect.top, emoji }]);
+                                setTimeout(() => {
+                                  setFlyingCartItems(prev => prev.filter(item => item.id !== id));
+                                }, 800);
+
                                 orderCart.push({
                                   name: `${selectedProduct.name} (${productSize})`,
                                   price: finalPrice,
